@@ -1,0 +1,134 @@
+---
+# Harden kaiju: SSH, nftables, fail2ban, unattended-upgrades, sysctl.
+# Run: ansible-playbook -i ../inventory/hosts.yml harden.yml
+# Requires: become, group_vars/all.yml (or .example defaults).
+- name: Harden kaiju server
+  hosts: kaiju
+  become: true
+  vars:
+    sshd_permit_root_login: "no"
+    sshd_password_authentication: "no"
+    sshd_kex_algorithms: "curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group-exchange-sha256"
+    sshd_ciphers: "chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com"
+    sshd_mac_algorithms: "hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512,hmac-sha2-256"
+  tasks:
+    - name: Install hardening packages
+      ansible.builtin.apt:
+        name:
+          - nftables
+          - fail2ban
+          - unattended-upgrades
+          - apt-listchanges
+        state: present
+        update_cache: true
+
+    - name: Harden SSH (sshd_config)
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^{{ item.key }} "
+        line: "{{ item.key }} {{ item.value }}"
+        create: false
+      loop:
+        - { key: "PermitRootLogin", value: "{{ sshd_permit_root_login }}" }
+        - { key: "PasswordAuthentication", value: "{{ sshd_password_authentication }}" }
+        - { key: "KexAlgorithms", value: "{{ sshd_kex_algorithms }}" }
+        - { key: "Ciphers", value: "{{ sshd_ciphers }}" }
+        - { key: "MACs", value: "{{ sshd_mac_algorithms }}" }
+      notify: Restart sshd
+
+    - name: Deploy nftables rules
+      ansible.builtin.template:
+        src: templates/nftables.conf.j2
+        dest: /etc/nftables.conf
+        mode: "0644"
+      notify: Reload nftables
+
+    - name: Enable and start nftables
+      ansible.builtin.systemd:
+        name: nftables
+        state: started
+        enabled: true
+      register: nftables_svc
+      failed_when: false
+      # nftables.service may not exist on older Debian; then we only deploy the file
+
+    - name: Configure fail2ban sshd jail
+      ansible.builtin.ini_file:
+        path: /etc/fail2ban/jail.local
+        section: "DEFAULT"
+        option: "{{ item.option }}"
+        value: "{{ item.value }}"
+        create: true
+      loop:
+        - { option: "bantime", value: "1h" }
+        - { option: "findtime", value: "10m" }
+        - { option: "maxretry", value: "5" }
+
+    - name: Enable fail2ban sshd jail
+      ansible.builtin.ini_file:
+        path: /etc/fail2ban/jail.local
+        section: "sshd"
+        option: "enabled"
+        value: "true"
+        create: true
+
+    - name: Ensure fail2ban started and enabled
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: started
+        enabled: true
+
+    - name: Configure unattended-upgrades (security only)
+      ansible.builtin.copy:
+        content: |
+          Unattended-Upgrade::Allowed-Origins {
+              "${distro_id}:${distro_codename}-security";
+          };
+          Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+          Unattended-Upgrade::MinimalSteps "true";
+          Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        mode: "0644"
+
+    - name: Enable unattended-upgrades
+      ansible.builtin.copy:
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT::Periodic::AutocleanInterval "7";
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: "0644"
+
+    - name: Deploy sysctl hardening
+      ansible.builtin.copy:
+        content: |
+          # Kaiju hardening
+          net.ipv4.conf.all.rp_filter = 1
+          net.ipv4.conf.default.rp_filter = 1
+          net.ipv4.icmp_echo_ignore_broadcasts = 1
+          net.ipv4.conf.all.accept_redirects = 0
+          net.ipv4.conf.default.accept_redirects = 0
+          net.ipv4.conf.all.secure_redirects = 0
+          net.ipv4.conf.default.secure_redirects = 0
+          net.ipv6.conf.all.accept_redirects = 0
+          net.ipv6.conf.default.accept_redirects = 0
+          kernel.dmesg_restrict = 1
+          kernel.kptr_restrict = 2
+        dest: /etc/sysctl.d/99-kaiju.conf
+        mode: "0644"
+
+    - name: Apply sysctl
+      ansible.builtin.command: sysctl --system
+      changed_when: true
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted
+
+    - name: Reload nftables
+      ansible.builtin.systemd:
+        name: nftables
+        state: reloaded

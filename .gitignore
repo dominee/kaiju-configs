@@ -1,0 +1,9 @@
+notes/
+.env
+.env.local
+INSTRUCTIONS.md
+
+# Ansible secrets (use .example templates)
+ansible/inventory/hosts.yml
+ansible/group_vars/all.yml
+

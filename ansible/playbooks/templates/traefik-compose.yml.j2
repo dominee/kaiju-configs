@@ -1,0 +1,44 @@
+# Traefik v3 — dual cert: Cloudflare Origin (web) + ACME/Cloudflare DNS (mail). Managed by Ansible.
+services:
+  traefik:
+    image: traefik:v3.3
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.cloudflare.acme.dnschallenge=true"
+      - "--certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.cloudflare.acme.email={{ acme_email | default('admin@' + domain) }}"
+      - "--certificatesresolvers.cloudflare.acme.storage=/letsencrypt/acme.json"
+      {% if cloudflare_origin_cert_enabled | default(false) %}
+      - "--providers.file.filename=/etc/traefik/origin-certs.yml"
+      {% endif %}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8080:8080"
+    env_file: .env
+    volumes:
+      - traefik_certs:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      {% if cloudflare_origin_cert_enabled | default(false) %}
+      - {{ traefik_install_path }}/certs:/certs:ro
+      - {{ traefik_install_path }}/origin-certs.yml:/etc/traefik/origin-certs.yml:ro
+      {% endif %}
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    name: proxy
+    driver: bridge
+
+volumes:
+  traefik_certs:
+    name: traefik_certs

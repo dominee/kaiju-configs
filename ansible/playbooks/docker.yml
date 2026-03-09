@@ -1,0 +1,187 @@
+---
+# Install Docker CE, Portainer, and Traefik on kaiju.
+# Run: ansible-playbook -i ../inventory/hosts.yml docker.yml
+# Requires: group_vars/all.yml with domain, acme_email, cloudflare_api_token.
+- name: Install Docker CE and deploy Portainer + Traefik
+  hosts: kaiju
+  become: true
+  vars:
+    docker_apt_release: "{{ ansible_distribution_release }}"
+    traefik_install_path: /opt/traefik
+    portainer_data_path: /opt/portainer/data
+    static_web_install_path: /opt/static-web
+  tasks:
+    - name: Remove conflicting packages
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-doc
+          - docker-compose
+          - podman-docker
+          - containerd
+          - runc
+        state: absent
+      failed_when: false
+
+    - name: Install Docker dependencies
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+        update_cache: true
+
+    - name: Create Docker apt keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Add Docker GPG key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+        force: true
+
+    - name: Add Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ ansible_architecture }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ docker_apt_release }} stable"
+        filename: docker
+        state: present
+        update_cache: true
+
+    - name: Install Docker CE and Compose plugin
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Add deploy user to docker group
+      ansible.builtin.user:
+        name: "{{ docker_deploy_user | default(ansible_user) }}"
+        groups: docker
+        append: true
+
+    - name: Enable Docker and containerd on boot
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - docker
+        - containerd
+
+    - name: Create Traefik install directory
+      ansible.builtin.file:
+        path: "{{ traefik_install_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create Traefik certs directory (Cloudflare Origin Cert)
+      ansible.builtin.file:
+        path: "{{ traefik_install_path }}/certs"
+        state: directory
+        mode: "0755"
+      when: cloudflare_origin_cert_enabled | default(false) | bool
+
+    - name: Deploy Traefik origin certs config
+      ansible.builtin.template:
+        src: templates/traefik-origin-certs.yml.j2
+        dest: "{{ traefik_install_path }}/origin-certs.yml"
+        mode: "0644"
+      when: cloudflare_origin_cert_enabled | default(false) | bool
+
+    - name: Deploy Traefik .env (Cloudflare token)
+      ansible.builtin.template:
+        src: templates/traefik.env.j2
+        dest: "{{ traefik_install_path }}/.env"
+        mode: "0600"
+        force: true
+
+    - name: Deploy Traefik compose file
+      ansible.builtin.template:
+        src: templates/traefik-compose.yml.j2
+        dest: "{{ traefik_install_path }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Start Traefik stack
+      ansible.builtin.shell: |
+        cd {{ traefik_install_path }} && docker compose up -d
+      register: traefik_up
+      changed_when: "'Creating' in traefik_up.stdout or 'Starting' in traefik_up.stdout"
+      args:
+        executable: /bin/bash
+
+    - name: Create Portainer data directory
+      ansible.builtin.file:
+        path: "{{ portainer_data_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if Portainer container exists
+      ansible.builtin.shell: docker ps -a -q -f name=^portainer$
+      register: portainer_exists
+      changed_when: false
+      failed_when: false
+
+    - name: Deploy Portainer CE
+      ansible.builtin.shell: |
+        docker run -d --name portainer --restart unless-stopped \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v {{ portainer_data_path }}:/data \
+          -p 9000:9000 -p 9443:9443 \
+          portainer/portainer-ce:latest
+      when: portainer_exists.stdout | trim | length == 0
+      changed_when: true
+      args:
+        executable: /bin/bash
+
+    - name: Start Portainer if stopped
+      ansible.builtin.shell: docker start portainer
+      when: portainer_exists.stdout | trim | length > 0
+      register: portainer_start
+      changed_when: portainer_start.rc == 0
+      args:
+        executable: /bin/bash
+
+    - name: Create static web directory
+      ansible.builtin.file:
+        path: "{{ static_web_install_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create static web html directory
+      ansible.builtin.file:
+        path: "{{ static_web_install_path }}/html"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy static web placeholder index
+      ansible.builtin.copy:
+        content: |
+          <!DOCTYPE html>
+          <html><head><title>Kaiju</title></head>
+          <body><h1>Kaiju</h1><p>Static site placeholder.</p></body></html>
+        dest: "{{ static_web_install_path }}/html/index.html"
+        mode: "0644"
+
+    - name: Deploy static web compose
+      ansible.builtin.template:
+        src: templates/static-web-compose.yml.j2
+        dest: "{{ static_web_install_path }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Start static web stack
+      ansible.builtin.shell: |
+        cd {{ static_web_install_path }} && docker compose up -d
+      register: static_web_up
+      changed_when: "'Creating' in static_web_up.stdout or 'Starting' in static_web_up.stdout"
+      args:
+        executable: /bin/bash

@@ -1,0 +1,24 @@
+# Static web (nginx) behind Traefik and Cloudflare shield. Managed by Ansible.
+# Uses Cloudflare Origin Cert (default) when cloudflare_origin_cert_enabled; else ACME.
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: static-web
+    restart: unless-stopped
+    volumes:
+      - ./html:/usr/share/nginx/html:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.static-web.rule=Host(`{{ static_web_fqdn | default('www.' + domain) }}`)
+      - traefik.http.routers.static-web.entrypoints=websecure
+      {% if not (cloudflare_origin_cert_enabled | default(false)) %}
+      - traefik.http.routers.static-web.tls.certresolver=cloudflare
+      {% endif %}
+      - traefik.http.services.static-web.loadbalancer.server.port=80
+      - traefik.docker.network=proxy
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true

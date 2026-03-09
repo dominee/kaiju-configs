@@ -1,0 +1,9 @@
+# Cloudflare Origin Certificate — default TLS for web services behind Cloudflare.
+# Place origin.pem and origin-key.pem in /opt/traefik/certs/ (from Cloudflare dashboard).
+# When cloudflare_origin_cert_enabled is true, this file is deployed and loaded by Traefik.
+tls:
+  certificates:
+    - certFile: /certs/origin.pem
+      keyFile: /certs/origin-key.pem
+      stores:
+        - default

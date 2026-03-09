@@ -1,0 +1,50 @@
+# docker-compose.override.yml for mailcow behind Traefik v3
+# Deployed by Ansible. See https://docs.mailcow.email/post_installation/reverse-proxy/r_p-traefik3/
+
+services:
+  certdumper:
+    image: ghcr.io/kereis/traefik-certs-dumper:latest
+    container_name: traefik_certdumper
+    restart: unless-stopped
+    network_mode: none
+    command: --restart-containers mailcow_postfix-mailcow_1,mailcow_dovecot-mailcow_1
+    volumes:
+      - traefik_certs:/traefik:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/assets/ssl:/output:rw
+    environment:
+      - DOMAIN={{ domain }}
+      - ACME_FILE_PATH=/traefik/acme.json
+
+  nginx-mailcow:
+    expose:
+      - "8080"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.mailcow-autodiscover.entrypoints=websecure
+      - traefik.http.routers.mailcow-autodiscover.rule=Host(`autodiscover.{{ domain }}`) && Path(`/autodiscover/autodiscover.xml`)
+      - traefik.http.routers.mailcow-autodiscover.tls.certresolver=cloudflare
+      - traefik.http.routers.mailcow-autodiscover.service=mailcow-svc
+      - traefik.http.routers.mailcow-autoconfig.entrypoints=websecure
+      - traefik.http.routers.mailcow-autoconfig.rule=Host(`autoconfig.{{ domain }}`) && Path(`/mail/config-v1.1.xml`)
+      - traefik.http.routers.mailcow-autoconfig.tls.certresolver=cloudflare
+      - traefik.http.routers.mailcow-autoconfig.service=mailcow-svc
+      - traefik.http.routers.mailcow.entrypoints=websecure
+      - traefik.http.routers.mailcow.rule=Host(`{{ mailcow_fqdn }}`)
+      - traefik.http.routers.mailcow.tls=true
+      - traefik.http.routers.mailcow.tls.certresolver=cloudflare
+      - traefik.http.routers.mailcow.service=mailcow-svc
+      - traefik.http.services.mailcow-svc.loadbalancer.server.port=8080
+      - traefik.docker.network=proxy
+    networks:
+      - mailcow-network
+      - proxy
+    restart: always
+
+networks:
+  proxy:
+    external: true
+
+volumes:
+  traefik_certs:
+    external: true

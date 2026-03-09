@@ -1,0 +1,37 @@
+# Copy to all.yml and fill in real values. all.yml is gitignored.
+# These variables are used by playbooks; never commit secrets.
+
+# --- SSH / access ---
+# ansible_user and key are in inventory; optional overrides:
+# ansible_user: dominee
+# ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+
+# --- Domain and TLS ---
+# Domain: hell.sk. DNS managed by Cloudflare.
+# Host FQDN: kaiju.hell.sk
+domain: hell.sk
+kaiju_fqdn: "kaiju.{{ domain }}"       # host FQDN
+acme_email: "admin@{{ domain }}"       # Let's Encrypt / ACME contact (for mail)
+mailcow_fqdn: "mail.{{ domain }}"      # mail server hostname
+
+# --- Cloudflare ---
+# DNS managed by Cloudflare. API token for ACME (Let's Encrypt via DNS challenge).
+cloudflare_api_token: "your-cloudflare-api-token"
+# Web services behind Cloudflare shield use Cloudflare Origin Certificates.
+# Set to true after placing origin.pem and origin-key.pem in /opt/traefik/certs/
+cloudflare_origin_cert_enabled: false
+# Cloudflare Origin Cert: place origin.pem and origin-key.pem in /opt/traefik/certs/
+# (from Cloudflare dashboard: SSL/TLS > Origin Server > Create Certificate)
+
+# --- Mailcow ---
+mailcow_install_path: /vault/mailcow
+# mailcow generate_config.sh will prompt for some; or set here and pass:
+# mailcow_admin_user: admin
+# mailcow_admin_pass: "secure-password"
+# mailcow_mailbox_secret: "random-secret-for-mailbox"
+
+# --- Optional: Docker deploy user (default from inventory) ---
+docker_deploy_user: "{{ ansible_user }}"
+
+# --- Optional: static web (nginx) ---
+static_web_fqdn: "www.{{ domain }}"

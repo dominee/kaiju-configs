@@ -1,0 +1,99 @@
+---
+# Deploy mailcow behind Traefik on kaiju.
+# Run after docker.yml (Docker + Traefik must be running). Requires group_vars: domain, mailcow_fqdn, etc.
+# Run: ansible-playbook -i ../inventory/hosts.yml mailcow.yml
+- name: Deploy mailcow with Traefik integration
+  hosts: kaiju
+  become: true
+  vars:
+    mailcow_repo: https://github.com/mailcow/mailcow-dockerized.git
+    mailcow_branch: master
+  tasks:
+    - name: Ensure /vault exists (LUKS data mount)
+      ansible.builtin.file:
+        path: /vault
+        state: directory
+        mode: "0755"
+      failed_when: false
+
+    - name: Install git
+      ansible.builtin.apt:
+        name: git
+        state: present
+        update_cache: true
+
+    - name: Clone or update mailcow-dockerized
+      ansible.builtin.git:
+        repo: "{{ mailcow_repo }}"
+        dest: "{{ mailcow_install_path }}"
+        version: "{{ mailcow_branch }}"
+        force: false
+        update: true
+      register: mailcow_git
+
+    - name: Check if mailcow.conf already exists
+      ansible.builtin.stat:
+        path: "{{ mailcow_install_path }}/mailcow.conf"
+      register: mailcow_conf_stat
+
+    - name: Generate random mailcow DB/Redis passwords
+      ansible.builtin.set_fact:
+        mailcow_dbpass: "{{ lookup('password', '/dev/null length=28 chars=ascii_letters,digits') }}"
+        mailcow_dbroot: "{{ lookup('password', '/dev/null length=28 chars=ascii_letters,digits') }}"
+        mailcow_redispass: "{{ lookup('password', '/dev/null length=28 chars=ascii_letters,digits') }}"
+        mailcow_sogo_key: "{{ lookup('password', '/dev/null length=16 chars=ascii_letters,digits') }}"
+      when: not mailcow_conf_stat.stat.exists
+
+    - name: Deploy mailcow.conf (only on first install; set mailcow_dbpass etc. in group_vars to preserve secrets)
+      ansible.builtin.template:
+        src: templates/mailcow.conf.j2
+        dest: "{{ mailcow_install_path }}/mailcow.conf"
+        mode: "0600"
+      when: not mailcow_conf_stat.stat.exists
+
+    - name: Create .env symlink to mailcow.conf
+      ansible.builtin.file:
+        src: mailcow.conf
+        path: "{{ mailcow_install_path }}/.env"
+        state: link
+        force: true
+
+    - name: Ensure mailcow data/assets/ssl exists
+      ansible.builtin.file:
+        path: "{{ mailcow_install_path }}/data/assets/ssl"
+        state: directory
+        mode: "0755"
+
+    - name: Check if snake-oil cert exists
+      ansible.builtin.stat:
+        path: "{{ mailcow_install_path }}/data/assets/ssl/cert.pem"
+      register: mailcow_cert_stat
+
+    - name: Generate snake-oil certificate for mailcow
+      ansible.builtin.shell: |
+        openssl req -x509 -newkey rsa:4096 -keyout "{{ mailcow_install_path }}/data/assets/ssl/key.pem" \
+          -out "{{ mailcow_install_path }}/data/assets/ssl/cert.pem" -days 365 \
+          -subj "/CN={{ mailcow_fqdn }}" -sha256 -nodes
+      when: not mailcow_cert_stat.stat.exists
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Ensure Docker network proxy exists (for Traefik <-> mailcow)
+      ansible.builtin.shell: docker network create proxy 2>/dev/null || true
+      changed_when: false
+      failed_when: false
+
+    - name: Deploy mailcow Traefik override
+      ansible.builtin.template:
+        src: templates/mailcow-traefik-override.yml.j2
+        dest: "{{ mailcow_install_path }}/docker-compose.override.yml"
+        mode: "0644"
+
+    - name: Start mailcow stack
+      ansible.builtin.shell: |
+        cd {{ mailcow_install_path }} && docker compose up -d
+      register: mailcow_up
+      changed_when: "'Creating' in mailcow_up.stdout or 'Starting' in mailcow_up.stdout or 'Pulling' in mailcow_up.stdout"
+      args:
+        executable: /bin/bash

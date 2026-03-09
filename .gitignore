@@ -2,6 +2,7 @@ notes/
 .env
 .env.local
 INSTRUCTIONS.md
+README-INTERNAL.md
 
 # Ansible secrets (use .example templates)
 ansible/inventory/hosts.yml

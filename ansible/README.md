@@ -70,6 +70,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/mailcow.yml
 ansible-playbook -i inventory/hosts.yml playbooks/ip-migration.yml -t precheck,add_prod_ips
 # (optional, after DNS cutover + validation) remove lab IPs
 ansible-playbook -i inventory/hosts.yml playbooks/ip-migration.yml -t remove_lab_ips
+ansible-playbook -i inventory/hosts.yml playbooks/observability.yml
 ```
 
 Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
@@ -80,6 +81,7 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 - **docker.yml** — Docker CE, Portainer, Traefik (dual cert: Cloudflare Origin for web, ACME for mail), multi-vhost static nginx from `/var/www/html`.
 - **mailcow.yml** — mailcow-dockerized behind Traefik (mail, autodiscover, autoconfig, webmail/SOGo); requires Docker and Traefik. Restrict webmail by country via Cloudflare WAF if desired.
 - **ip-migration.yml** — add production web/mail IPs to `bond0` alongside lab IPs, then (optionally) remove lab IPs after DNS cutover. Does **not** change persistent network config files; intended for controlled migration.
+- **observability.yml** — Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, and `ctop` for logs, metrics, and dashboards. Grafana at `{{ grafana_fqdn }}`, Dozzle at `{{ dozzle_fqdn }}` behind Traefik.
 
 ## Certificate strategy
 

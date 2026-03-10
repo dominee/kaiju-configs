@@ -55,3 +55,17 @@ static_web_vhosts:
   - { fqdn: "from.hell.sk", doc_root: "from.hell.sk" }
   - { fqdn: "goldendawns-clan.cz", doc_root: "goldendawns-clan.cz" }
   - { fqdn: "www.goldendawns-clan.cz", doc_root: "goldendawns-clan.cz" }
+
+# --- Observability / monitoring ---
+# Hostnames for observability UIs (served via Traefik).
+dozzle_fqdn: "logs.{{ domain }}"
+grafana_fqdn: "metrics.{{ domain }}"
+
+# Prometheus scrape configuration basics.
+prometheus_retention_time: "15d"
+prometheus_scrape_interval: "15s"
+
+# Optional: Mailcow Prometheus exporter.
+# If you deploy a mailcow exporter container, set:
+# mailcow_exporter_enabled: true
+# mailcow_exporter_url: "http://mailcow-exporter:9125/metrics"

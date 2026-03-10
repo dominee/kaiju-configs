@@ -1,0 +1,89 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.0.0
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time={{ prometheus_retention_time }}"
+    networks:
+      - proxy
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.grafana.rule=Host(`{{ grafana_fqdn }}`)
+      - traefik.http.routers.grafana.entrypoints=websecure
+{% if not (cloudflare_origin_cert_enabled | default(false)) %}
+      - traefik.http.routers.grafana.tls.certresolver=cloudflare
+{% endif %}
+      - traefik.http.services.grafana.loadbalancer.server.port=3000
+      - traefik.docker.network=proxy
+    networks:
+      - proxy
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    pid: host
+    network_mode: host
+    command:
+      - "--path.rootfs=/host"
+    volumes:
+      - /:/host:ro,rslave
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    command:
+      - "--storage_driver=none"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - proxy
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dozzle.rule=Host(`{{ dozzle_fqdn }}`)
+      - traefik.http.routers.dozzle.entrypoints=websecure
+{% if not (cloudflare_origin_cert_enabled | default(false)) %}
+      - traefik.http.routers.dozzle.tls.certresolver=cloudflare
+{% endif %}
+      - traefik.http.services.dozzle.loadbalancer.server.port=8080
+      - traefik.docker.network=proxy
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+
+volumes:
+  prometheus_data:
+  grafana_data:
+

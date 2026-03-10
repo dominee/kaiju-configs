@@ -1,0 +1,43 @@
+---
+# Observability stack: Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, ctop.
+# Run: ansible-playbook -i ../inventory/hosts.yml observability.yml
+# Requires: group_vars/all.yml with dozzle_fqdn, grafana_fqdn, prometheus_* vars.
+
+- name: Deploy observability stack on kaiju
+  hosts: kaiju
+  become: true
+  vars:
+    observability_install_path: /opt/observability
+  tasks:
+    - name: Install ctop (container top) CLI
+      ansible.builtin.apt:
+        name: ctop
+        state: present
+        update_cache: true
+
+    - name: Create observability install directory
+      ansible.builtin.file:
+        path: "{{ observability_install_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy Prometheus config
+      ansible.builtin.template:
+        src: templates/prometheus.yml.j2
+        dest: "{{ observability_install_path }}/prometheus.yml"
+        mode: "0644"
+
+    - name: Deploy observability compose file
+      ansible.builtin.template:
+        src: templates/observability-compose.yml.j2
+        dest: "{{ observability_install_path }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Start observability stack
+      ansible.builtin.shell: |
+        cd {{ observability_install_path }} && docker compose up -d
+      register: observability_up
+      changed_when: "'Creating' in observability_up.stdout or 'Starting' in observability_up.stdout or 'Pulling' in observability_up.stdout"
+      args:
+        executable: /bin/bash
+

@@ -1,5 +1,6 @@
 # docker-compose.override.yml for mailcow behind Traefik v3
 # Deployed by Ansible. See https://docs.mailcow.email/post_installation/reverse-proxy/r_p-traefik3/
+# Hostnames: mail, autodiscover, autoconfig, webmail (SOGo). Restrict webmail by geoip via Cloudflare WAF.
 
 services:
   certdumper:
@@ -34,6 +35,10 @@ services:
       - traefik.http.routers.mailcow.tls=true
       - traefik.http.routers.mailcow.tls.certresolver=cloudflare
       - traefik.http.routers.mailcow.service=mailcow-svc
+      - traefik.http.routers.mailcow-webmail.entrypoints=websecure
+      - traefik.http.routers.mailcow-webmail.rule=Host(`{{ mailcow_webmail_fqdn }}`)
+      - traefik.http.routers.mailcow-webmail.tls.certresolver=cloudflare
+      - traefik.http.routers.mailcow-webmail.service=mailcow-svc
       - traefik.http.services.mailcow-svc.loadbalancer.server.port=8080
       - traefik.docker.network=proxy
     networks:

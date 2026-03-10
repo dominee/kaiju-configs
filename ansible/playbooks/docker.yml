@@ -157,19 +157,32 @@
         state: directory
         mode: "0755"
 
-    - name: Create static web html directory
+    - name: Create /var/www/html for static content
       ansible.builtin.file:
-        path: "{{ static_web_install_path }}/html"
+        path: /var/www/html
         state: directory
         mode: "0755"
 
-    - name: Deploy static web placeholder index
-      ansible.builtin.copy:
-        content: |
-          <!DOCTYPE html>
-          <html><head><title>Kaiju</title></head>
-          <body><h1>Kaiju</h1><p>Static site placeholder.</p></body></html>
-        dest: "{{ static_web_install_path }}/html/index.html"
+    - name: Set default static web vhosts when not defined
+      ansible.builtin.set_fact:
+        static_web_vhosts: "{{ [{ fqdn: (static_web_fqdn | default('www.' + domain)), doc_root: (static_web_fqdn | default('www.' + domain)) }] }}"
+      when: static_web_vhosts is not defined or static_web_vhosts | length == 0
+
+    - name: Get unique static web document roots
+      ansible.builtin.set_fact:
+        static_web_doc_roots: "{{ static_web_vhosts | map(attribute='doc_root') | unique | list }}"
+
+    - name: Create static web doc root directories
+      ansible.builtin.file:
+        path: "/var/www/html/{{ item }}/public"
+        state: directory
+        mode: "0755"
+      loop: "{{ static_web_doc_roots }}"
+
+    - name: Deploy static web nginx config
+      ansible.builtin.template:
+        src: templates/static-web-nginx.conf.j2
+        dest: "{{ static_web_install_path }}/nginx.conf"
         mode: "0644"
 
     - name: Deploy static web compose

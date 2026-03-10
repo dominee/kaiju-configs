@@ -1,13 +1,14 @@
 # Copy to hosts.yml and fill in real values. hosts.yml is gitignored.
 # Usage: ansible-playbook -i inventory/hosts.yml playbooks/<name>.yml
-# Host FQDN: kaiju.hell.sk
+# Single server, two IPs on bond0: web (kaiju.hell.sk), mail (mail.hell.sk).
+# Set Cloudflare A: kaiju.hell.sk → web_ip, mail.hell.sk (and autodiscover, autoconfig, webmail) → mail_ip.
 
 all:
   children:
     kaiju:
       hosts:
         kaiju:
-          ansible_host: kaiju.hell.sk   # or IP; DNS managed by Cloudflare
+          ansible_host: kaiju.hell.sk   # or web_ip; DNS points to web IP
           # ansible_connection: local   # uncomment for testing on same machine
       vars:
         ansible_user: dominee           # SSH user (replace with your deploy user)

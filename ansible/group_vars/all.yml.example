@@ -8,11 +8,20 @@
 
 # --- Domain and TLS ---
 # Domain: hell.sk. DNS managed by Cloudflare.
-# Host FQDN: kaiju.hell.sk
+# Host FQDN: kaiju.hell.sk (web), mail.hell.sk (mail).
 domain: hell.sk
-kaiju_fqdn: "kaiju.{{ domain }}"       # host FQDN
+kaiju_fqdn: "kaiju.{{ domain }}"       # host FQDN (web services)
 acme_email: "admin@{{ domain }}"       # Let's Encrypt / ACME contact (for mail)
 mailcow_fqdn: "mail.{{ domain }}"      # mail server hostname
+
+# --- Host IPs and hostnames (single server, bond0 with two IPs) ---
+# Web services (Traefik, static sites): kaiju.hell.sk → web_ip
+# Mail services (Mailcow): mail.hell.sk → mail_ip
+# Set Cloudflare A records: kaiju.hell.sk → web_ip, mail.hell.sk → mail_ip (and mail-related FQDNs).
+web_ip: "10.101.10.73"
+mail_ip: "10.101.10.74"
+web_hostname: "kaiju.{{ domain }}"
+mail_hostname: "mail.{{ domain }}"
 
 # --- Cloudflare ---
 # DNS managed by Cloudflare. API token for ACME (Let's Encrypt via DNS challenge).
@@ -25,6 +34,10 @@ cloudflare_origin_cert_enabled: false
 
 # --- Mailcow ---
 mailcow_install_path: /vault/mailcow
+# SOGo web interface hostname; geoip restriction can be applied via Cloudflare WAF.
+mailcow_webmail_fqdn: "webmail.{{ domain }}"
+# Optional: list of country codes allowed for webmail (e.g. ["SK", "CZ"]). Enforce via Cloudflare WAF or Traefik plugin.
+# mailcow_webmail_geoip_allowed_countries: ["SK", "CZ"]
 # mailcow generate_config.sh will prompt for some; or set here and pass:
 # mailcow_admin_user: admin
 # mailcow_admin_pass: "secure-password"
@@ -33,5 +46,12 @@ mailcow_install_path: /vault/mailcow
 # --- Optional: Docker deploy user (default from inventory) ---
 docker_deploy_user: "{{ ansible_user }}"
 
-# --- Optional: static web (nginx) ---
-static_web_fqdn: "www.{{ domain }}"
+# --- Static web (nginx) ---
+# Content path on host: /var/www/html/<doc_root>/public. Multiple FQDNs can share the same doc_root.
+# Do not add mail.hell.sk here — it is served by Mailcow.
+static_web_vhosts:
+  - { fqdn: "www.hell.sk", doc_root: "hell.sk" }
+  - { fqdn: "hell.sk", doc_root: "hell.sk" }
+  - { fqdn: "from.hell.sk", doc_root: "from.hell.sk" }
+  - { fqdn: "goldendawns-clan.cz", doc_root: "goldendawns-clan.cz" }
+  - { fqdn: "www.goldendawns-clan.cz", doc_root: "goldendawns-clan.cz" }

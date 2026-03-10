@@ -1,20 +1,24 @@
-# Static web (nginx) behind Traefik and Cloudflare shield. Managed by Ansible.
-# Uses Cloudflare Origin Cert (default) when cloudflare_origin_cert_enabled; else ACME.
+# Static web (nginx) behind Traefik. One container, multi-vhost via nginx.conf. Managed by Ansible.
+# Content on host: /var/www/html/<doc_root>/public. Uses Cloudflare Origin Cert when enabled; else ACME.
 services:
   nginx:
     image: nginx:alpine
     container_name: static-web
     restart: unless-stopped
     volumes:
-      - ./html:/usr/share/nginx/html:ro
+      - /var/www/html:/var/www/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
     labels:
       - traefik.enable=true
-      - traefik.http.routers.static-web.rule=Host(`{{ static_web_fqdn | default('www.' + domain) }}`)
-      - traefik.http.routers.static-web.entrypoints=websecure
-      {% if not (cloudflare_origin_cert_enabled | default(false)) %}
-      - traefik.http.routers.static-web.tls.certresolver=cloudflare
-      {% endif %}
-      - traefik.http.services.static-web.loadbalancer.server.port=80
+{% for vhost in static_web_vhosts %}
+      - traefik.http.routers.static-web-{{ vhost.fqdn | replace('.', '-') }}.rule=Host(`{{ vhost.fqdn }}`)
+      - traefik.http.routers.static-web-{{ vhost.fqdn | replace('.', '-') }}.entrypoints=websecure
+{% if not (cloudflare_origin_cert_enabled | default(false)) %}
+      - traefik.http.routers.static-web-{{ vhost.fqdn | replace('.', '-') }}.tls.certresolver=cloudflare
+{% endif %}
+      - traefik.http.routers.static-web-{{ vhost.fqdn | replace('.', '-') }}.service=static-web-svc
+{% endfor %}
+      - traefik.http.services.static-web-svc.loadbalancer.server.port=80
       - traefik.docker.network=proxy
     networks:
       - proxy

@@ -2,7 +2,9 @@
 
 Playbooks are run from your workstation (no direct SSH from automation). Copy the example files and fill in secrets.
 
-**Host FQDN:** `kaiju.hell.sk` | **Domain:** `hell.sk` | **DNS:** Cloudflare
+**Host FQDNs:** `kaiju.hell.sk` (web), `mail.hell.sk` (mail) | **Domain:** `hell.sk` | **DNS:** Cloudflare
+
+Single server with two IPs (e.g. bond0): web services and static sites on `web_ip` / `kaiju.hell.sk`, mail (Mailcow) on `mail_ip` / `mail.hell.sk`. One Traefik instance listens on both; routing is by hostname. Static content lives under `/var/www/html/<doc_root>/public`; configure `static_web_vhosts` in `group_vars/all.yml`.
 
 ## Setup
 
@@ -33,8 +35,8 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 ## Playbooks
 
 - **harden.yml** — SSH hardening, nftables firewall, fail2ban, unattended-upgrades, sysctl.
-- **docker.yml** — Docker CE, Portainer, Traefik (dual cert: Cloudflare Origin for web, ACME for mail), static nginx site.
-- **mailcow.yml** — mailcow-dockerized behind Traefik; requires Docker and Traefik already running.
+- **docker.yml** — Docker CE, Portainer, Traefik (dual cert: Cloudflare Origin for web, ACME for mail), multi-vhost static nginx from `/var/www/html`.
+- **mailcow.yml** — mailcow-dockerized behind Traefik (mail, autodiscover, autoconfig, webmail/SOGo); requires Docker and Traefik. Restrict webmail by country via Cloudflare WAF if desired.
 
 ## Certificate strategy
 

@@ -1,0 +1,106 @@
+- name: Migrate lab IPs to production IPs on bond interface
+  hosts: kaiju
+  become: true
+  vars:
+    # Interface carrying both lab and production IPs
+    bond_interface: "{{ bond_interface | default('bond0') }}"
+
+    # Lab IPs (current)
+    lab_web_ip: "{{ lab_web_ip | default('10.101.10.73/24') }}"
+    lab_mail_ip: "{{ lab_mail_ip | default('10.101.10.74/24') }}"
+
+    # Production IPs (target) - override these in group_vars/all.yml or via -e
+    prod_web_ip: "{{ prod_web_ip }}"
+    prod_mail_ip: "{{ prod_mail_ip }}"
+
+  tasks:
+    - name: Fail if production IPs are not defined
+      ansible.builtin.fail:
+        msg: "prod_web_ip and prod_mail_ip must be defined (e.g. '203.0.113.73/24')."
+      when: prod_web_ip is not defined or prod_mail_ip is not defined
+      tags: [precheck, add_prod_ips, remove_lab_ips]
+
+    - name: Show current IPv4 addresses on bond interface
+      ansible.builtin.command: ip -4 addr show dev {{ bond_interface }}
+      register: ip_addr_before
+      changed_when: false
+      failed_when: ip_addr_before.rc != 0
+      tags: [precheck, add_prod_ips, remove_lab_ips]
+
+    - name: Display current IPv4 addresses
+      ansible.builtin.debug:
+        var: ip_addr_before.stdout_lines
+      tags: [precheck, add_prod_ips, remove_lab_ips]
+
+    - name: Check if production web IP already present
+      ansible.builtin.shell: ip -4 addr show dev {{ bond_interface }} | grep -q "{{ prod_web_ip | regex_replace('/[0-9]+$', '') }}/"
+      register: prod_web_present
+      changed_when: false
+      failed_when: false
+      tags: [precheck, add_prod_ips]
+
+    - name: Check if production mail IP already present
+      ansible.builtin.shell: ip -4 addr show dev {{ bond_interface }} | grep -q "{{ prod_mail_ip | regex_replace('/[0-9]+$', '') }}/"
+      register: prod_mail_present
+      changed_when: false
+      failed_when: false
+      tags: [precheck, add_prod_ips]
+
+    - name: Add production web IP to bond interface
+      ansible.builtin.command: ip addr add {{ prod_web_ip }} dev {{ bond_interface }}
+      when: prod_web_present.rc != 0
+      tags: [add_prod_ips]
+
+    - name: Add production mail IP to bond interface
+      ansible.builtin.command: ip addr add {{ prod_mail_ip }} dev {{ bond_interface }}
+      when: prod_mail_present.rc != 0
+      tags: [add_prod_ips]
+
+    - name: Show IPv4 addresses after adding production IPs
+      ansible.builtin.command: ip -4 addr show dev {{ bond_interface }}
+      register: ip_addr_after_add
+      changed_when: false
+      failed_when: ip_addr_after_add.rc != 0
+      tags: [add_prod_ips]
+
+    - name: Display IPv4 addresses after adding production IPs
+      ansible.builtin.debug:
+        var: ip_addr_after_add.stdout_lines
+      tags: [add_prod_ips]
+
+    - name: Check if lab web IP is present
+      ansible.builtin.shell: ip -4 addr show dev {{ bond_interface }} | grep -q "{{ lab_web_ip | regex_replace('/[0-9]+$', '') }}/"
+      register: lab_web_present
+      changed_when: false
+      failed_when: false
+      tags: [remove_lab_ips]
+
+    - name: Check if lab mail IP is present
+      ansible.builtin.shell: ip -4 addr show dev {{ bond_interface }} | grep -q "{{ lab_mail_ip | regex_replace('/[0-9]+$', '') }}/"
+      register: lab_mail_present
+      changed_when: false
+      failed_when: false
+      tags: [remove_lab_ips]
+
+    - name: Remove lab web IP from bond interface
+      ansible.builtin.command: ip addr del {{ lab_web_ip }} dev {{ bond_interface }}
+      when: lab_web_present.rc == 0
+      tags: [remove_lab_ips]
+
+    - name: Remove lab mail IP from bond interface
+      ansible.builtin.command: ip addr del {{ lab_mail_ip }} dev {{ bond_interface }}
+      when: lab_mail_present.rc == 0
+      tags: [remove_lab_ips]
+
+    - name: Show IPv4 addresses after removing lab IPs
+      ansible.builtin.command: ip -4 addr show dev {{ bond_interface }}
+      register: ip_addr_after_remove
+      changed_when: false
+      failed_when: ip_addr_after_remove.rc != 0
+      tags: [remove_lab_ips]
+
+    - name: Display IPv4 addresses after removing lab IPs
+      ansible.builtin.debug:
+        var: ip_addr_after_remove.stdout_lines
+      tags: [remove_lab_ips]
+

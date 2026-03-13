@@ -1,0 +1,78 @@
+---
+# Convert existing directories into dedicated BTRFS subvolumes on a running system.
+# Run: ansible-playbook -i ../inventory/hosts.yml playbooks/btrfs-subvolumes.yml
+#
+# WARNING:
+# - This assumes / is on BTRFS and /vault is already a BTRFS subvolume (see docs/kaiju-os-state.md).
+# - It creates subvolumes under the same BTRFS filesystem and mounts them at:
+#   - /var/lib/docker  -> @var_lib_docker
+#   - /var/www/html    -> @var_www_html
+#   - /var/log         -> @var_log
+#   - /home            -> @home
+
+- name: Convert directories into BTRFS subvolumes
+  hosts: kaiju
+  become: true
+  vars:
+    btrfs_root_mount: /mnt/btrfs-root
+    btrfs_subvolumes:
+      - name: "@var_lib_docker"
+        mountpoint: "/var/lib/docker"
+        stop_services: ["docker", "containerd"]
+      - name: "@var_www_html"
+        mountpoint: "/var/www/html"
+        stop_services: ["docker"]
+      - name: "@var_log"
+        mountpoint: "/var/log"
+        stop_services: []
+      - name: "@home"
+        mountpoint: "/home"
+        stop_services: []
+
+  tasks:
+    - name: Ensure root filesystem is BTRFS
+      ansible.builtin.command: findmnt -no FSTYPE /
+      register: root_fstype
+      changed_when: false
+      failed_when: root_fstype.rc != 0 or root_fstype.stdout.strip() != "btrfs"
+
+    - name: Get root BTRFS device and mountpoint
+      ansible.builtin.command: findmnt -no SOURCE,TARGET /
+      register: root_mount
+      changed_when: false
+
+    - name: Parse BTRFS device and mountpoint
+      ansible.builtin.set_fact:
+        btrfs_device: "{{ root_mount.stdout.split()[0] }}"
+        btrfs_mountpoint: "{{ root_mount.stdout.split()[1] }}"
+
+    - name: Get BTRFS filesystem UUID
+      ansible.builtin.command: blkid -s UUID -o value {{ btrfs_device }}
+      register: btrfs_uuid_cmd
+      changed_when: false
+      failed_when: btrfs_uuid_cmd.rc != 0
+
+    - name: Set BTRFS filesystem UUID fact
+      ansible.builtin.set_fact:
+        btrfs_uuid: "{{ btrfs_uuid_cmd.stdout.strip() }}"
+
+    - name: Ensure BTRFS root mount directory exists
+      ansible.builtin.file:
+        path: "{{ btrfs_root_mount }}"
+        state: directory
+        mode: "0755"
+
+    - name: Mount BTRFS filesystem top-level at {{ btrfs_root_mount }}
+      ansible.builtin.mount:
+        path: "{{ btrfs_root_mount }}"
+        src: "{{ btrfs_device }}"
+        fstype: btrfs
+        opts: "subvol=/"
+        state: mounted
+
+    - name: Process BTRFS subvolume conversions
+      ansible.builtin.include_tasks: btrfs-subvolumes_convert.yml
+      loop: "{{ btrfs_subvolumes }}"
+      loop_control:
+        loop_var: subvol
+

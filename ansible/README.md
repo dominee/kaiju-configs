@@ -82,6 +82,7 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 - **mailcow.yml** — mailcow-dockerized behind Traefik (mail, autodiscover, autoconfig, webmail/SOGo); requires Docker and Traefik. Restrict webmail by country via Cloudflare WAF if desired.
 - **ip-migration.yml** — add production web/mail IPs to `bond0` alongside lab IPs, then (optionally) remove lab IPs after DNS cutover. Does **not** change persistent network config files; intended for controlled migration.
 - **observability.yml** — Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, and `ctop` for logs, metrics, and dashboards. Grafana at `{{ grafana_fqdn }}`, Dozzle at `{{ dozzle_fqdn }}` behind Traefik.
+- **btrfs-subvolumes.yml** — convert existing directories (`/var/lib/docker`, `/var/www/html`, `/var/log`, `/home`) into dedicated BTRFS subvolumes on a running system, updating fstab and mounts. Designed for the kaiju host layout in `docs/kaiju-os-state.md`.
 
 ## Certificate strategy
 

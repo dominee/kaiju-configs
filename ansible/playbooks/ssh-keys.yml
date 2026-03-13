@@ -1,0 +1,50 @@
+---
+# Deploy public SSH keys for the main admin user (dominee).
+# Run: ansible-playbook -i ../inventory/hosts.yml playbooks/ssh-keys.yml
+#
+# Public keys are stored in this repository under:
+#   ansible/files/ssh-keys/dominee/*.pub
+# (multiple keys are supported; all are added to authorized_keys).
+
+- name: Deploy SSH authorized_keys for dominee
+  hosts: kaiju
+  become: true
+  vars:
+    ssh_keys_dir: "{{ playbook_dir | dirname }}/files/ssh-keys/dominee"
+
+  tasks:
+    - name: Ensure .ssh directory exists for dominee
+      ansible.builtin.file:
+        path: "/home/dominee/.ssh"
+        state: directory
+        owner: "dominee"
+        group: "dominee"
+        mode: "0700"
+
+    - name: Find public key files for dominee
+      ansible.builtin.find:
+        paths: "{{ ssh_keys_dir }}"
+        patterns: "*.pub"
+        file_type: file
+      register: dominee_key_files
+
+    - name: Abort if no public keys were found for dominee
+      ansible.builtin.fail:
+        msg: "No public keys found in {{ ssh_keys_dir }} for dominee."
+      when: dominee_key_files.matched | int == 0
+
+    - name: Read dominee public key files
+      ansible.builtin.slurp:
+        src: "{{ item.path }}"
+      loop: "{{ dominee_key_files.files }}"
+      register: dominee_keys
+
+    - name: Deploy dominee authorized_keys from all public key files
+      ansible.builtin.authorized_key:
+        user: "dominee"
+        key: "{{ (item.content | b64decode).strip() }}"
+        state: present
+        manage_dir: false
+      loop: "{{ dominee_keys.results }}"
+
+

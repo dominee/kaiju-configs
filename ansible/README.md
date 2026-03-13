@@ -83,6 +83,7 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 - **ip-migration.yml** — add production web/mail IPs to `bond0` alongside lab IPs, then (optionally) remove lab IPs after DNS cutover. Does **not** change persistent network config files; intended for controlled migration.
 - **observability.yml** — Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, and `ctop` for logs, metrics, and dashboards. Grafana at `{{ grafana_fqdn }}`, Dozzle at `{{ dozzle_fqdn }}` behind Traefik.
 - **btrfs-subvolumes.yml** — convert existing directories (`/var/lib/docker`, `/var/www/html`, `/var/log`, `/home`) into dedicated BTRFS subvolumes on a running system, updating fstab and mounts. Designed for the kaiju host layout in `docs/kaiju-os-state.md`.
+- **ssh-keys.yml** — deploy SSH `authorized_keys` for `dominee` from all public key files in `ansible/files/ssh-keys/dominee/`.
 
 ## Certificate strategy
 

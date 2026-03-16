@@ -71,6 +71,8 @@ ansible-playbook -i inventory/hosts.yml playbooks/ip-migration.yml -t precheck,a
 # (optional, after DNS cutover + validation) remove lab IPs
 ansible-playbook -i inventory/hosts.yml playbooks/ip-migration.yml -t remove_lab_ips
 ansible-playbook -i inventory/hosts.yml playbooks/observability.yml
+ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-basic.yml
+ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-full.yml
 ```
 
 Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
@@ -84,6 +86,8 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 - **observability.yml** — Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, and `ctop` for logs, metrics, and dashboards. Grafana at `{{ grafana_fqdn }}`, Dozzle at `{{ dozzle_fqdn }}` behind Traefik.
 - **btrfs-subvolumes.yml** — convert existing directories (`/var/lib/docker`, `/var/www/html`, `/var/log`, `/home`) into dedicated BTRFS subvolumes on a running system, updating fstab and mounts. Designed for the kaiju host layout in `docs/kaiju-os-state.md`.
 - **ssh-keys.yml** — deploy SSH `authorized_keys` for `dominee` from all public key files in `ansible/files/ssh-keys/dominee/`.
+- **healthcheck-basic.yml** — basic OS and Docker health: uptime, load, disk, memory, critical systemd services, and running containers.
+- **healthcheck-full.yml** — extended healthcheck including BTRFS status, Traefik/Mailcow/observability containers, HTTP checks for key UIs, and listening mail ports.
 
 ## Certificate strategy
 

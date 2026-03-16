@@ -1,0 +1,73 @@
+---
+# Basic healthcheck of the kaiju server.
+# Run: ansible-playbook -i ../inventory/hosts.yml playbooks/healthcheck-basic.yml
+
+- name: Basic healthcheck for kaiju
+  hosts: kaiju
+  become: true
+
+  tasks:
+    - name: Gather minimal facts
+      ansible.builtin.setup:
+        gather_subset:
+          - hardware
+          - network
+          - virtual
+
+    - name: Show hostname, uptime, and load
+      ansible.builtin.command: uptime
+      register: uptime_cmd
+      changed_when: false
+
+    - name: Display uptime and load
+      ansible.builtin.debug:
+        var: uptime_cmd.stdout
+
+    - name: Check root filesystem usage
+      ansible.builtin.command: df -h /
+      register: df_root
+      changed_when: false
+
+    - name: Display root filesystem usage
+      ansible.builtin.debug:
+        var: df_root.stdout_lines
+
+    - name: Check memory usage
+      ansible.builtin.command: free -h
+      register: free_cmd
+      changed_when: false
+
+    - name: Display memory usage
+      ansible.builtin.debug:
+        var: free_cmd.stdout_lines
+
+    - name: Ensure critical services are active (docker, containerd, nftables, ssh)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - docker
+        - containerd
+        - nftables
+        - ssh
+
+    - name: Check Docker service status
+      ansible.builtin.systemd:
+        name: docker
+      register: docker_status
+      changed_when: false
+
+    - name: Show Docker service status
+      ansible.builtin.debug:
+        var: docker_status.status
+
+    - name: List running Docker containers
+      ansible.builtin.command: docker ps --format '{{ "{{.Names}}" }} {{ "{{.Status}}" }}'
+      register: docker_ps
+      changed_when: false
+      failed_when: false
+
+    - name: Display running Docker containers
+      ansible.builtin.debug:
+        var: docker_ps.stdout_lines
+

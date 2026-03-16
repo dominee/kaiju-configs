@@ -1,0 +1,114 @@
+---
+# Full healthcheck of the kaiju server: OS, BTRFS, Docker, and key services.
+# Run: ansible-playbook -i ../inventory/hosts.yml playbooks/healthcheck-full.yml
+
+- name: Full healthcheck for kaiju
+  hosts: kaiju
+  become: true
+
+  vars:
+    healthcheck_web_host: "{{ web_hostname | default(kaiju_fqdn) }}"
+    healthcheck_mail_host: "{{ mailcow_fqdn }}"
+    healthcheck_grafana_host: "{{ grafana_fqdn | default('metrics.' + domain) }}"
+    healthcheck_dozzle_host: "{{ dozzle_fqdn | default('logs.' + domain) }}"
+
+  tasks:
+    - name: Include basic healthcheck tasks
+      ansible.builtin.import_playbook: healthcheck-basic.yml
+
+    - name: Check BTRFS filesystem health
+      ansible.builtin.command: btrfs filesystem df /
+      register: btrfs_df
+      changed_when: false
+      failed_when: false
+
+    - name: Display BTRFS filesystem usage
+      ansible.builtin.debug:
+        var: btrfs_df.stdout_lines
+
+    - name: Check BTRFS scrub status (if any)
+      ansible.builtin.command: btrfs scrub status /
+      register: btrfs_scrub
+      changed_when: false
+      failed_when: false
+
+    - name: Display BTRFS scrub status
+      ansible.builtin.debug:
+        var: btrfs_scrub.stdout_lines
+
+    - name: Check that Traefik container is running
+      ansible.builtin.command: docker ps --format '{{ "{{.Names}}" }}' | grep -w traefik
+      register: traefik_running
+      changed_when: false
+
+    - name: Fail if Traefik is not running
+      ansible.builtin.fail:
+        msg: "Traefik container is not running."
+      when: traefik_running.rc != 0
+
+    - name: Check that Mailcow nginx-mailcow container is running
+      ansible.builtin.command: docker ps --format '{{ "{{.Names}}" }}' | grep -w mailcow-nginx-mailcow
+      register: mailcow_nginx_running
+      changed_when: false
+      failed_when: false
+
+    - name: Warn if Mailcow nginx-mailcow is not running
+      ansible.builtin.debug:
+        msg: "Mailcow nginx-mailcow container is NOT running."
+      when: mailcow_nginx_running.rc != 0
+
+    - name: Check that observability (prometheus, grafana, dozzle) containers are running
+      ansible.builtin.command: docker ps --format '{{ "{{.Names}}" }}' | grep -E 'prometheus|grafana|dozzle'
+      register: observability_containers
+      changed_when: false
+      failed_when: false
+
+    - name: Display observability containers state
+      ansible.builtin.debug:
+        var: observability_containers.stdout_lines
+
+    - name: HTTP check for Traefik / web (static) endpoint
+      ansible.builtin.uri:
+        url: "https://{{ healthcheck_web_host }}/"
+        method: GET
+        return_content: false
+        validate_certs: false
+      register: web_check
+      failed_when: web_check.status | default(0) < 200 or web_check.status | default(0) >= 400
+
+    - name: HTTP check for Mailcow web UI
+      ansible.builtin.uri:
+        url: "https://{{ healthcheck_mail_host }}/"
+        method: GET
+        return_content: false
+        validate_certs: false
+      register: mailcow_check
+      failed_when: mailcow_check.status | default(0) < 200 or mailcow_check.status | default(0) >= 400
+
+    - name: HTTP check for Grafana (metrics UI)
+      ansible.builtin.uri:
+        url: "https://{{ healthcheck_grafana_host }}/login"
+        method: GET
+        return_content: false
+        validate_certs: false
+      register: grafana_check
+      failed_when: false
+
+    - name: HTTP check for Dozzle (logs UI)
+      ansible.builtin.uri:
+        url: "https://{{ healthcheck_dozzle_host }}/"
+        method: GET
+        return_content: false
+        validate_certs: false
+      register: dozzle_check
+      failed_when: false
+
+    - name: Check that mail ports are listening (25, 465, 587, 993)
+      ansible.builtin.command: ss -tln '( sport = :25 or sport = :465 or sport = :587 or sport = :993 )'
+      register: mail_ports
+      changed_when: false
+
+    - name: Display mail ports listening state
+      ansible.builtin.debug:
+        var: mail_ports.stdout_lines
+

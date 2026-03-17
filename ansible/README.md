@@ -6,6 +6,8 @@ Playbooks are run from your workstation (no direct SSH from automation). Copy th
 
 Single server with two IPs (e.g. bond0): web services and static sites on `web_ip` / `kaiju.hell.sk`, mail (Mailcow) on `mail_ip` / `mail.hell.sk`. One Traefik instance listens on both; routing is by hostname. Static content lives under `/var/www/html/<doc_root>/public`; configure `static_web_vhosts` in `group_vars/all.yml`.
 
+All hosts referenced by this repository and targeted by these playbooks are assumed to be under the **`hell.sk`** domain.
+
 ## Hostnames and IPs (`*.hell.sk`)
 
 Lab (example) mapping on one server (bond0 with two IPs):

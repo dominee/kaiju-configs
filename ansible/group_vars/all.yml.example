@@ -8,6 +8,7 @@
 
 # --- Domain and TLS ---
 # Domain: hell.sk. DNS managed by Cloudflare.
+# Repository convention: all hosts/services are under the hell.sk domain.
 # Host FQDN: kaiju.hell.sk (web), mail.hell.sk (mail).
 domain: hell.sk
 kaiju_fqdn: "kaiju.{{ domain }}"       # host FQDN (web services)

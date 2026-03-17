@@ -69,3 +69,19 @@ prometheus_scrape_interval: "15s"
 # If you deploy a mailcow exporter container, set:
 # mailcow_exporter_enabled: true
 # mailcow_exporter_url: "http://mailcow-exporter:9125/metrics"
+
+# --- Mail migration (IMAP) ---
+# Mailbox migration from abyss.hell.sk to Mailcow using imapsync.
+# Store passwords in group_vars/all.yml using ansible-vault (never commit secrets).
+imapsync_source_host: "abyss.hell.sk"
+imapsync_dest_host: "mail.{{ domain }}"
+# imapsync_accounts:
+#   - user: "dominee@hell.sk"
+#     source_password: "SOURCE_PASS"
+#     dest_password: "DEST_PASS"
+#   - user: "djiabliq@hell.sk"
+#     source_password: "SOURCE_PASS"
+#     dest_password: "DEST_PASS"
+#   - user: "celo@hell.sk"
+#     source_password: "SOURCE_PASS"
+#     dest_password: "DEST_PASS"

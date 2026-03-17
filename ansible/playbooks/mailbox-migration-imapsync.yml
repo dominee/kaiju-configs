@@ -1,0 +1,78 @@
+---
+# Migrate IMAP mailboxes from abyss.hell.sk (Dovecot) to Mailcow using imapsync.
+# Run: ansible-playbook -i ../inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml
+#
+# Notes:
+# - Designed to be re-run multiple times (pre-cutover and post-cutover delta sync).
+# - Expects destination mailboxes to exist in Mailcow already (create users first).
+# - Store passwords in group_vars/all.yml (recommended with ansible-vault).
+#
+# Required vars (suggested):
+#   imapsync_source_host: "abyss.hell.sk"
+#   imapsync_dest_host: "{{ mailcow_fqdn }}"
+#   imapsync_accounts:
+#     - user: "dominee@hell.sk"
+#       source_password: "..."
+#       dest_password: "..."
+#     - user: "djiabliq@hell.sk"
+#       source_password: "..."
+#       dest_password: "..."
+#     - user: "celo@hell.sk"
+#       source_password: "..."
+#       dest_password: "..."
+#
+# Optional vars:
+#   imapsync_dry_run: false
+#   imapsync_extra_args: []   # list of additional CLI flags, e.g. ["--exclude", "Junk"]
+
+- name: Migrate mailboxes using imapsync
+  hosts: kaiju
+  become: true
+  vars:
+    imapsync_source_host: "{{ imapsync_source_host | default('abyss.hell.sk') }}"
+    imapsync_dest_host: "{{ imapsync_dest_host | default(mailcow_fqdn) }}"
+    imapsync_source_port: 993
+    imapsync_dest_port: 993
+    imapsync_dry_run: "{{ imapsync_dry_run | default(false) | bool }}"
+    imapsync_extra_args: "{{ imapsync_extra_args | default([]) }}"
+
+  tasks:
+    - name: Fail if imapsync_accounts is not defined
+      ansible.builtin.fail:
+        msg: "Define imapsync_accounts (list of user/source_password/dest_password) in group_vars/all.yml (use ansible-vault)."
+      when: imapsync_accounts is not defined or imapsync_accounts | length == 0
+
+    - name: Install imapsync
+      ansible.builtin.apt:
+        name: imapsync
+        state: present
+        update_cache: true
+
+    - name: Run imapsync for each mailbox
+      ansible.builtin.command: >-
+        imapsync
+        --host1 {{ imapsync_source_host }} --port1 {{ imapsync_source_port }}
+        --user1 {{ item.user }} --password1 {{ item.source_password }}
+        --ssl1
+        --host2 {{ imapsync_dest_host }} --port2 {{ imapsync_dest_port }}
+        --user2 {{ item.user }} --password2 {{ item.dest_password }}
+        --ssl2
+        --syncinternaldates
+        --usecache
+        --addheader
+        --automap
+        --skipsize
+        --nofoldersizes
+        --nofastio1
+        --nofastio2
+        {% if imapsync_dry_run %} --dry {% endif %}
+        {{ imapsync_extra_args | join(' ') }}
+      loop: "{{ imapsync_accounts }}"
+      register: imapsync_runs
+      changed_when: true
+      no_log: true
+
+    - name: Summarize imapsync results (redacted)
+      ansible.builtin.debug:
+        msg: "imapsync completed for {{ imapsync_runs.results | length }} account(s). Review /var/log/syslog or rerun with -vv for details (passwords are hidden)."
+

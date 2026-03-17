@@ -88,6 +88,7 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 - **ssh-keys.yml** — deploy SSH `authorized_keys` for `dominee` from all public key files in `ansible/files/ssh-keys/dominee/`.
 - **healthcheck-basic.yml** — basic OS and Docker health: uptime, load, disk, memory, critical systemd services, and running containers.
 - **healthcheck-full.yml** — extended healthcheck including BTRFS status, Traefik/Mailcow/observability containers, HTTP checks for key UIs, and listening mail ports.
+- **mailbox-migration-imapsync.yml** — migrate IMAP mailboxes from `abyss.hell.sk` (Dovecot) to Mailcow using `imapsync`; safe to re-run for delta sync (store passwords via ansible-vault).
 
 ## Certificate strategy
 

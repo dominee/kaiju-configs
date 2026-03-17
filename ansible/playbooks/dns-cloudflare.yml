@@ -1,0 +1,93 @@
+---
+# Manage Cloudflare DNS records for core host/service FQDNs (hell.sk zone).
+# Run: ansible-playbook -i ../inventory/hosts.yml playbooks/dns-cloudflare.yml
+#
+# Requirements:
+# - group_vars/all.yml:
+#   - domain: hell.sk
+#   - cloudflare_api_token: <token>
+#   - web_ip, mail_ip
+#   - (optional) dozzle_fqdn, grafana_fqdn, static_web_vhosts
+#
+# Notes:
+# - This playbook manages only records within the Cloudflare zone matching `domain`.
+# - Mail hostnames that must support SMTP/IMAPS are created as DNS-only (proxied: false).
+
+- name: Manage Cloudflare DNS (core hostnames)
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    cf_api_base: "https://api.cloudflare.com/client/v4"
+    cf_zone_name: "{{ domain }}"
+
+    # Records we consider "mail transport" (must not be proxied by Cloudflare).
+    cf_dns_only_fqdns:
+      - "{{ mailcow_fqdn | default('mail.' + domain) }}"
+      - "autodiscover.{{ domain }}"
+      - "autoconfig.{{ domain }}"
+
+    # Optional: webmail is HTTP; can be proxied. Default false unless you set it true.
+    cf_webmail_proxied: "{{ cf_webmail_proxied | default(false) | bool }}"
+
+  tasks:
+    - name: Fail if Cloudflare token is not set
+      ansible.builtin.fail:
+        msg: "cloudflare_api_token must be set in group_vars/all.yml"
+      when: cloudflare_api_token is not defined or cloudflare_api_token | length == 0
+
+    - name: Get Cloudflare zone id for {{ cf_zone_name }}
+      ansible.builtin.uri:
+        url: "{{ cf_api_base }}/zones?name={{ cf_zone_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+          Content-Type: "application/json"
+        return_content: true
+      register: cf_zone_resp
+
+    - name: Set Cloudflare zone id
+      ansible.builtin.set_fact:
+        cf_zone_id: "{{ (cf_zone_resp.json.result | first).id }}"
+      failed_when: cf_zone_resp.json.result | length != 1
+
+    - name: Build desired core A records (hell.sk only)
+      ansible.builtin.set_fact:
+        cf_desired_records: >-
+          {{
+            [
+              {'type':'A', 'name': kaiju_fqdn | default('kaiju.' + domain), 'content': web_ip, 'ttl': 1, 'proxied': true},
+              {'type':'A', 'name': mailcow_fqdn | default('mail.' + domain), 'content': mail_ip, 'ttl': 1, 'proxied': false},
+              {'type':'A', 'name': 'autodiscover.' + domain, 'content': mail_ip, 'ttl': 1, 'proxied': false},
+              {'type':'A', 'name': 'autoconfig.' + domain, 'content': mail_ip, 'ttl': 1, 'proxied': false},
+              {'type':'A', 'name': mailcow_webmail_fqdn | default('webmail.' + domain), 'content': mail_ip, 'ttl': 1, 'proxied': cf_webmail_proxied},
+              {'type':'A', 'name': grafana_fqdn | default('metrics.' + domain), 'content': web_ip, 'ttl': 1, 'proxied': true},
+              {'type':'A', 'name': dozzle_fqdn | default('logs.' + domain), 'content': web_ip, 'ttl': 1, 'proxied': true}
+            ]
+            +
+            (
+              (static_web_vhosts | default([]))
+              | map(attribute='fqdn')
+              | select('match', '(^|\\.)' + (domain | regex_escape) + '$')
+              | list
+              | unique
+              | map('regex_replace', '^(.*)$', '{\"type\":\"A\",\"name\":\"\\1\",\"content\":\"' + web_ip + '\",\"ttl\":1,\"proxied\":true}')
+              | map('from_json')
+              | list
+            )
+          }}
+      when:
+        - web_ip is defined
+        - mail_ip is defined
+
+    - name: Fail if web_ip or mail_ip not defined
+      ansible.builtin.fail:
+        msg: "web_ip and mail_ip must be set in group_vars/all.yml"
+      when: web_ip is not defined or mail_ip is not defined
+
+    - name: Ensure desired records exist (create/update)
+      ansible.builtin.include_tasks: dns-cloudflare_record.yml
+      loop: "{{ cf_desired_records }}"
+      loop_control:
+        loop_var: rec
+

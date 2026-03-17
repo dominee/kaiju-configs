@@ -1,0 +1,71 @@
+---
+# Ensure a single Cloudflare mail DNS record exists and matches desired state.
+# Expects:
+# - cf_api_base, cf_zone_id, cloudflare_api_token
+# - rec: {type,name,content,ttl,proxied[,priority]}
+
+- name: Lookup existing DNS record {{ rec.type }} {{ rec.name }}
+  ansible.builtin.uri:
+    url: "{{ cf_api_base }}/zones/{{ cf_zone_id }}/dns_records?type={{ rec.type }}&name={{ rec.name }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    return_content: true
+  register: cf_lookup
+
+- name: Set existing record fact (if any)
+  ansible.builtin.set_fact:
+    cf_existing: "{{ (cf_lookup.json.result | first) if (cf_lookup.json.result | length > 0) else None }}"
+
+- name: Create DNS record {{ rec.type }} {{ rec.name }} if missing
+  ansible.builtin.uri:
+    url: "{{ cf_api_base }}/zones/{{ cf_zone_id }}/dns_records"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: >-
+      {{
+        {
+          'type': rec.type,
+          'name': rec.name,
+          'content': rec.content,
+          'ttl': (rec.ttl | default(1)),
+          'proxied': (rec.proxied | default(false))
+        }
+        | combine( (rec.type == 'MX') | ternary({'priority': (rec.priority | int)}, {}) )
+      }}
+    return_content: true
+    status_code: [200, 201]
+  when: cf_existing is none
+
+- name: Update DNS record {{ rec.type }} {{ rec.name }} if drifted
+  ansible.builtin.uri:
+    url: "{{ cf_api_base }}/zones/{{ cf_zone_id }}/dns_records/{{ cf_existing.id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: >-
+      {{
+        {
+          'type': rec.type,
+          'name': rec.name,
+          'content': rec.content,
+          'ttl': (rec.ttl | default(1)),
+          'proxied': (rec.proxied | default(false))
+        }
+        | combine( (rec.type == 'MX') | ternary({'priority': (rec.priority | int)}, {}) )
+      }}
+    return_content: true
+    status_code: [200]
+  when:
+    - cf_existing is not none
+    - (cf_existing.content | string) != (rec.content | string)
+      or (cf_existing.ttl | int) != (rec.ttl | default(1) | int)
+      or ((cf_existing.proxied | default(false) | bool) != (rec.proxied | default(false) | bool))
+      or ((rec.type == 'MX') and ((cf_existing.priority | default(0) | int) != (rec.priority | int)))
+

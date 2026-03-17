@@ -1,0 +1,123 @@
+---
+# Validate Cloudflare DNS records for this project (hell.sk zone).
+# Run: ansible-playbook playbooks/dns-validate.yml
+#
+# Validates:
+# - Core A records (kaiju/mail/webmail/autoconfig/autodiscover/metrics/logs + static_web_vhosts under domain)
+# - Mail essentials (MX, SPF, DMARC; DKIM optional if provided)
+#
+# Fails if records are missing or drifted.
+
+- name: Validate Cloudflare DNS records
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    cf_api_base: "https://api.cloudflare.com/client/v4"
+    cf_zone_name: "{{ cloudflare_zone_name | default(domain) }}"
+
+    expected_web_ip: "{{ web_ip }}"
+    expected_mail_ip: "{{ mail_ip }}"
+
+    expected_kaiju_fqdn: "{{ kaiju_fqdn | default('kaiju.' + domain) }}"
+    expected_mail_fqdn: "{{ mailcow_fqdn | default('mail.' + domain) }}"
+    expected_webmail_fqdn: "{{ mailcow_webmail_fqdn | default('webmail.' + domain) }}"
+    expected_metrics_fqdn: "{{ grafana_fqdn | default('metrics.' + domain) }}"
+    expected_logs_fqdn: "{{ dozzle_fqdn | default('logs.' + domain) }}"
+
+    expected_mx_name: "{{ domain }}"
+    expected_mx_target: "{{ expected_mail_fqdn }}"
+    expected_mx_priority: "{{ mail_mx_priority | default(10) | int }}"
+
+    expected_spf_value: "{{ mail_spf_value | default('v=spf1 mx -all') }}"
+    expected_dmarc_name: "_dmarc.{{ domain }}"
+    expected_dmarc_policy: "{{ dmarc_policy | default('none') }}"
+    expected_dmarc_rua: "{{ dmarc_rua | default('mailto:postmaster@' + domain) }}"
+    expected_dmarc_ruf: "{{ dmarc_ruf | default('mailto:postmaster@' + domain) }}"
+    expected_dmarc_value: >-
+      {{ 'v=DMARC1; p=' + expected_dmarc_policy + '; rua=' + expected_dmarc_rua + '; ruf=' + expected_dmarc_ruf + '; adkim=s; aspf=s; fo=1' }}
+
+  tasks:
+    - name: Fail if Cloudflare token is not set
+      ansible.builtin.fail:
+        msg: "cloudflare_api_token must be set in group_vars/all.yml"
+      when: cloudflare_api_token is not defined or cloudflare_api_token | length == 0
+
+    - name: Fail if web_ip or mail_ip is not set
+      ansible.builtin.fail:
+        msg: "web_ip and mail_ip must be set in group_vars/all.yml"
+      when: web_ip is not defined or mail_ip is not defined
+
+    - name: Get Cloudflare zone id for {{ cf_zone_name }}
+      ansible.builtin.uri:
+        url: "{{ cf_api_base }}/zones?name={{ cf_zone_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+          Content-Type: "application/json"
+        return_content: true
+      register: cf_zone_resp
+
+    - name: Set Cloudflare zone id
+      ansible.builtin.set_fact:
+        cf_zone_id: "{{ (cf_zone_resp.json.result | first).id }}"
+      failed_when: cf_zone_resp.json.result | length != 1
+
+    - name: Build expected A records list
+      ansible.builtin.set_fact:
+        expected_a_records: >-
+          {{
+            [
+              {'type':'A','name': expected_kaiju_fqdn,    'content': expected_web_ip,  'proxied': true},
+              {'type':'A','name': expected_mail_fqdn,     'content': expected_mail_ip, 'proxied': false},
+              {'type':'A','name': 'autodiscover.' + domain,'content': expected_mail_ip,'proxied': false},
+              {'type':'A','name': 'autoconfig.' + domain, 'content': expected_mail_ip,'proxied': false},
+              {'type':'A','name': expected_webmail_fqdn,  'content': expected_mail_ip, 'proxied': (cf_webmail_proxied | default(false) | bool)},
+              {'type':'A','name': expected_metrics_fqdn,  'content': expected_web_ip,  'proxied': true},
+              {'type':'A','name': expected_logs_fqdn,     'content': expected_web_ip,  'proxied': true}
+            ]
+            +
+            (
+              (static_web_vhosts | default([]))
+              | map(attribute='fqdn')
+              | select('match', '(^|\\.)' + (domain | regex_escape) + '$')
+              | list
+              | unique
+              | map('regex_replace', '^(.*)$', '{\"type\":\"A\",\"name\":\"\\1\",\"content\":\"' + expected_web_ip + '\",\"proxied\":true}')
+              | map('from_json')
+              | list
+            )
+          }}
+
+    - name: Validate A records
+      ansible.builtin.include_tasks: dns-validate_record.yml
+      loop: "{{ expected_a_records }}"
+      loop_control:
+        loop_var: exp
+
+    - name: Build expected mail DNS records list
+      ansible.builtin.set_fact:
+        expected_mail_records:
+          - { type: "MX",  name: "{{ expected_mx_name }}",        content: "{{ expected_mx_target }}", priority: "{{ expected_mx_priority }}", proxied: false }
+          - { type: "TXT", name: "{{ domain }}",                  content: "{{ expected_spf_value }}", proxied: false }
+          - { type: "TXT", name: "{{ expected_dmarc_name }}",     content: "{{ expected_dmarc_value }}", proxied: false }
+
+    - name: Optionally add DKIM record expectation when dkim_public_key is defined
+      ansible.builtin.set_fact:
+        expected_mail_records: >-
+          {{
+            expected_mail_records
+            + [ { 'type':'TXT', 'name': (dkim_selector | default('dkim')) + '._domainkey.' + domain, 'content': dkim_public_key, 'proxied': false } ]
+          }}
+      when: dkim_public_key is defined and dkim_public_key | length > 0
+
+    - name: Validate mail DNS records
+      ansible.builtin.include_tasks: dns-validate_record.yml
+      loop: "{{ expected_mail_records }}"
+      loop_control:
+        loop_var: exp
+
+    - name: DNS validation passed
+      ansible.builtin.debug:
+        msg: "Cloudflare DNS validation passed for zone {{ cf_zone_name }}."
+

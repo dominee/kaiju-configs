@@ -1,0 +1,80 @@
+---
+# Manage Cloudflare DNS records for mail essentials (hell.sk zone).
+# Run: ansible-playbook -i ../inventory/hosts.yml playbooks/mail-dns-records.yml
+#
+# This playbook handles:
+# - MX for the apex domain
+# - SPF (TXT) at apex
+# - DMARC (TXT) at _dmarc.<domain>
+# - DKIM (TXT) at <selector>._domainkey.<domain> (optional, requires you to provide value)
+#
+# Notes:
+# - DKIM value is Mailcow-generated; provide it as a variable once you extract it from Mailcow UI.
+# - Records are created as DNS-only (proxied: false).
+
+- name: Manage Cloudflare DNS (mail records)
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    cf_api_base: "https://api.cloudflare.com/client/v4"
+    cf_zone_name: "{{ domain }}"
+
+    mail_mx_host: "{{ mailcow_fqdn | default('mail.' + domain) }}"
+    mail_mx_priority: "{{ mail_mx_priority | default(10) }}"
+
+    mail_spf_value: "{{ mail_spf_value | default('v=spf1 mx -all') }}"
+
+    dmarc_policy: "{{ dmarc_policy | default('none') }}"
+    dmarc_rua: "{{ dmarc_rua | default('mailto:postmaster@' + domain) }}"
+    dmarc_ruf: "{{ dmarc_ruf | default('mailto:postmaster@' + domain) }}"
+    dmarc_value: >-
+      {{ 'v=DMARC1; p=' + dmarc_policy + '; rua=' + dmarc_rua + '; ruf=' + dmarc_ruf + '; adkim=s; aspf=s; fo=1' }}
+
+    dkim_selector: "{{ dkim_selector | default('dkim') }}"
+    # Example DKIM value (provide the real one):
+    # dkim_public_key: "v=DKIM1; k=rsa; p=MIIBIjANBgkqh..."
+
+  tasks:
+    - name: Fail if Cloudflare token is not set
+      ansible.builtin.fail:
+        msg: "cloudflare_api_token must be set in group_vars/all.yml"
+      when: cloudflare_api_token is not defined or cloudflare_api_token | length == 0
+
+    - name: Get Cloudflare zone id for {{ cf_zone_name }}
+      ansible.builtin.uri:
+        url: "{{ cf_api_base }}/zones?name={{ cf_zone_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+          Content-Type: "application/json"
+        return_content: true
+      register: cf_zone_resp
+
+    - name: Set Cloudflare zone id
+      ansible.builtin.set_fact:
+        cf_zone_id: "{{ (cf_zone_resp.json.result | first).id }}"
+      failed_when: cf_zone_resp.json.result | length != 1
+
+    - name: Build desired mail DNS records
+      ansible.builtin.set_fact:
+        cf_desired_records:
+          - { type: "MX",  name: "{{ domain }}",          content: "{{ mail_mx_host }}", priority: "{{ mail_mx_priority }}", ttl: 1, proxied: false }
+          - { type: "TXT", name: "{{ domain }}",          content: "{{ mail_spf_value }}", ttl: 1, proxied: false }
+          - { type: "TXT", name: "_dmarc.{{ domain }}",   content: "{{ dmarc_value }}", ttl: 1, proxied: false }
+
+    - name: Optionally add DKIM record when dkim_public_key is defined
+      ansible.builtin.set_fact:
+        cf_desired_records: >-
+          {{
+            cf_desired_records
+            + [ { 'type':'TXT', 'name': dkim_selector + '._domainkey.' + domain, 'content': dkim_public_key, 'ttl': 1, 'proxied': false } ]
+          }}
+      when: dkim_public_key is defined and dkim_public_key | length > 0
+
+    - name: Ensure desired mail DNS records exist (create/update)
+      ansible.builtin.include_tasks: mail-dns-records_record.yml
+      loop: "{{ cf_desired_records }}"
+      loop_control:
+        loop_var: rec
+

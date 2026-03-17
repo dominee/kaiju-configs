@@ -33,6 +33,13 @@ cloudflare_origin_cert_enabled: false
 # Cloudflare Origin Cert: place origin.pem and origin-key.pem in /opt/traefik/certs/
 # (from Cloudflare dashboard: SSL/TLS > Origin Server > Create Certificate)
 
+# --- Cloudflare DNS automation ---
+# Used by dns-cloudflare.yml and mail-dns-records.yml. Token should have Zone.DNS edit permissions.
+# Optional override (defaults to domain):
+# cloudflare_zone_name: "hell.sk"
+# Optional: proxy webmail through Cloudflare (HTTP only). Keep mail.hell.sk DNS-only.
+cf_webmail_proxied: false
+
 # --- Mailcow ---
 mailcow_install_path: /vault/mailcow
 # SOGo web interface hostname; geoip restriction can be applied via Cloudflare WAF.
@@ -86,3 +93,16 @@ imapsync_dest_host: "mail.{{ domain }}"
 #   - user: "celo@hell.sk"
 #     source_password: "SOURCE_PASS"
 #     dest_password: "DEST_PASS"
+
+# --- Mail DNS records (defaults are safe for lab, but review for production) ---
+# MX record for the apex domain points to mail.hell.sk by default.
+mail_mx_priority: 10
+# SPF default is strict; adjust if you send from other services.
+mail_spf_value: "v=spf1 mx -all"
+# DMARC default is monitor-only; switch to quarantine/reject after validation.
+dmarc_policy: "none"   # none | quarantine | reject
+dmarc_rua: "mailto:postmaster@{{ domain }}"
+dmarc_ruf: "mailto:postmaster@{{ domain }}"
+# DKIM: provide once you extract it from Mailcow (TXT record content).
+# dkim_selector: "dkim"
+# dkim_public_key: "v=DKIM1; k=rsa; p=MIIBIjANBgkqh..."

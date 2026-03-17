@@ -1,0 +1,45 @@
+---
+# Validate a single Cloudflare DNS record (type/name/content and optional proxied/priority).
+# Expects:
+# - cf_api_base, cf_zone_id, cloudflare_api_token
+# - exp: expected record dict
+
+- name: Lookup existing DNS record {{ exp.type }} {{ exp.name }}
+  ansible.builtin.uri:
+    url: "{{ cf_api_base }}/zones/{{ cf_zone_id }}/dns_records?type={{ exp.type }}&name={{ exp.name }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    return_content: true
+  register: cf_lookup
+
+- name: Fail if record is missing: {{ exp.type }} {{ exp.name }}
+  ansible.builtin.fail:
+    msg: "Missing DNS record: {{ exp.type }} {{ exp.name }}"
+  when: cf_lookup.json.result | length == 0
+
+- name: Select first matching record
+  ansible.builtin.set_fact:
+    cf_found: "{{ (cf_lookup.json.result | first) }}"
+
+- name: Validate record content for {{ exp.type }} {{ exp.name }}
+  ansible.builtin.assert:
+    that:
+      - (cf_found.content | string) == (exp.content | string)
+    fail_msg: "DNS drift for {{ exp.type }} {{ exp.name }}: expected content={{ exp.content }}, got={{ cf_found.content }}"
+
+- name: Validate record proxied flag for {{ exp.type }} {{ exp.name }}
+  ansible.builtin.assert:
+    that:
+      - (cf_found.proxied | default(false) | bool) == (exp.proxied | default(false) | bool)
+    fail_msg: "DNS drift for {{ exp.type }} {{ exp.name }}: expected proxied={{ exp.proxied | default(false) }}, got={{ cf_found.proxied | default(false) }}"
+  when: exp.proxied is defined
+
+- name: Validate MX priority for {{ exp.name }}
+  ansible.builtin.assert:
+    that:
+      - (cf_found.priority | int) == (exp.priority | int)
+    fail_msg: "DNS drift for MX {{ exp.name }}: expected priority={{ exp.priority }}, got={{ cf_found.priority }}"
+  when: exp.type == "MX" and exp.priority is defined
+

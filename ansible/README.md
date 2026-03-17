@@ -91,6 +91,9 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 - **healthcheck-basic.yml** — basic OS and Docker health: uptime, load, disk, memory, critical systemd services, and running containers.
 - **healthcheck-full.yml** — extended healthcheck including BTRFS status, Traefik/Mailcow/observability containers, HTTP checks for key UIs, and listening mail ports.
 - **mailbox-migration-imapsync.yml** — migrate IMAP mailboxes from `abyss.hell.sk` (Dovecot) to Mailcow using `imapsync`; safe to re-run for delta sync (store passwords via ansible-vault).
+- **dns-cloudflare.yml** — create/update core A records in Cloudflare for `hell.sk` hostnames (kaiju/mail/webmail/autoconfig/autodiscover/metrics/logs + `static_web_vhosts` under `hell.sk`).
+- **mail-dns-records.yml** — create/update mail DNS essentials in Cloudflare (MX/SPF/DMARC and optional DKIM TXT) for `hell.sk`.
+- **dns-validate.yml** — validate that Cloudflare DNS records match expected values (core A records + mail essentials), failing fast on drift before cutovers.
 
 ## Certificate strategy
 

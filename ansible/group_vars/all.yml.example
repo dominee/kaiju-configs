@@ -69,6 +69,15 @@ static_web_vhosts:
 dozzle_fqdn: "logs.{{ domain }}"
 grafana_fqdn: "metrics.{{ domain }}"
 
+# Protect observability UIs with Traefik Basic Auth (recommended).
+# Provide htpasswd-formatted user(s), ideally stored with ansible-vault in group_vars/all.yml.
+# Example (bcrypt):
+# observability_basic_auth_enabled: true
+# observability_basic_auth_users:
+#   - "dominee:$2y$05$................................................."
+observability_basic_auth_enabled: true
+observability_basic_auth_users: []
+
 # Prometheus scrape configuration basics.
 prometheus_retention_time: "15d"
 prometheus_scrape_interval: "15s"

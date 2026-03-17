@@ -29,6 +29,10 @@ services:
 {% if not (cloudflare_origin_cert_enabled | default(false)) %}
       - traefik.http.routers.grafana.tls.certresolver=cloudflare
 {% endif %}
+{% if observability_basic_auth_enabled | default(true) | bool %}
+      - traefik.http.routers.grafana.middlewares=observability-auth@docker
+      - traefik.http.middlewares.observability-auth.basicauth.users={{ (observability_basic_auth_users | default([])) | join(',') }}
+{% endif %}
       - traefik.http.services.grafana.loadbalancer.server.port=3000
       - traefik.docker.network=proxy
     networks:
@@ -73,6 +77,9 @@ services:
       - traefik.http.routers.dozzle.entrypoints=websecure
 {% if not (cloudflare_origin_cert_enabled | default(false)) %}
       - traefik.http.routers.dozzle.tls.certresolver=cloudflare
+{% endif %}
+{% if observability_basic_auth_enabled | default(true) | bool %}
+      - traefik.http.routers.dozzle.middlewares=observability-auth@docker
 {% endif %}
       - traefik.http.services.dozzle.loadbalancer.server.port=8080
       - traefik.docker.network=proxy

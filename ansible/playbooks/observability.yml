@@ -9,6 +9,18 @@
   vars:
     observability_install_path: /opt/observability
   tasks:
+    - name: Fail if Basic Auth is enabled but no users are configured
+      ansible.builtin.fail:
+        msg: "observability_basic_auth_enabled is true but observability_basic_auth_users is empty. Set it in group_vars/all.yml (use ansible-vault)."
+      when:
+        - observability_basic_auth_enabled | default(true) | bool
+        - (observability_basic_auth_users | default([])) | length == 0
+
+    - name: Fail if grafana_admin_password is not set
+      ansible.builtin.fail:
+        msg: "grafana_admin_password must be set in group_vars/all.yml (use ansible-vault)."
+      when: grafana_admin_password is not defined or grafana_admin_password | length == 0
+
     - name: Install ctop (container top) CLI
       ansible.builtin.apt:
         name: ctop

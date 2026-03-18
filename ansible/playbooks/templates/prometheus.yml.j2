@@ -21,6 +21,6 @@ scrape_configs:
 {% if mailcow_exporter_enabled | default(false) %}
   - job_name: "mailcow"
     static_configs:
-      - targets: ["{{ mailcow_exporter_url }}"]
+      - targets: ["{{ mailcow_exporter_target }}"]
 {% endif %}
 

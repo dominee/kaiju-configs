@@ -8,18 +8,25 @@
 #     mountpoint: "/var/lib/docker"
 #     stop_services: ["docker", "containerd"]
 
-- name: Check if mountpoint {{ subvol.mountpoint }} is already a separate mount
-  ansible.builtin.command: findmnt -no FSTYPE,SOURCE {{ subvol.mountpoint }}
+- name: Check if mountpoint {{ subvol.mountpoint }} is already a BTRFS subvolume mount
+  ansible.builtin.command: findmnt -no FSTYPE,OPTIONS {{ subvol.mountpoint }}
   register: subvol_mount
   changed_when: false
   failed_when: false
 
-- name: Skip conversion if {{ subvol.mountpoint }} is already a BTRFS subvolume mount
-  ansible.builtin.meta: end_host
-  when:
-    - subvol_mount.rc == 0
-    - subvol_mount.stdout.split()[0] == "btrfs"
-    - "subvol=" in subvol_mount.stdout.split()[1]
+- name: Set already-mounted-as-subvolume fact
+  ansible.builtin.set_fact:
+    already_subvol_mount: >-
+      {{
+        (subvol_mount.rc == 0)
+        and (subvol_mount.stdout.split()[0] == 'btrfs')
+        and ('subvol=' in (subvol_mount.stdout.split()[1] | default('')))
+      }}
+
+- name: Skip conversion for {{ subvol.mountpoint }} (already a subvolume mount)
+  ansible.builtin.debug:
+    msg: "Skipping {{ subvol.mountpoint }}: already mounted as a BTRFS subvolume."
+  when: already_subvol_mount
 
 - name: Ensure subvolume {{ subvol.name }} exists under BTRFS root
   ansible.builtin.command: btrfs subvolume list -o {{ btrfs_root_mount }}
@@ -28,25 +35,31 @@
 
 - name: Create subvolume {{ subvol.name }} if missing
   ansible.builtin.command: btrfs subvolume create {{ btrfs_root_mount }}/{{ subvol.name }}
-  when: "'{{ subvol.name }}' not in existing_subvols.stdout"
+  when:
+    - not already_subvol_mount
+    - "'{{ subvol.name }}' not in existing_subvols.stdout"
 
 - name: Stop services using {{ subvol.mountpoint }}
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: stopped
   loop: "{{ subvol.stop_services }}"
-  when: subvol.stop_services | length > 0
+  when:
+    - not already_subvol_mount
+    - subvol.stop_services | length > 0
 
 - name: Ensure mountpoint directory {{ subvol.mountpoint }} exists
   ansible.builtin.file:
     path: "{{ subvol.mountpoint }}"
     state: directory
     mode: "0755"
+  when: not already_subvol_mount
 
 - name: Rsync data from {{ subvol.mountpoint }} into subvolume {{ subvol.name }}
   ansible.builtin.command: >
     rsync -aAX --delete {{ subvol.mountpoint }}/ {{ btrfs_root_mount }}/{{ subvol.name }}/
   changed_when: true
+  when: not already_subvol_mount
 
 - name: Mount subvolume {{ subvol.name }} at {{ subvol.mountpoint }} and persist in fstab
   ansible.builtin.mount:
@@ -56,11 +69,14 @@
     opts: "subvol={{ subvol.name }},defaults"
     state: mounted
     fstab: yes
+  when: not already_subvol_mount
 
 - name: Start services using {{ subvol.mountpoint }}
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: started
   loop: "{{ subvol.stop_services }}"
-  when: subvol.stop_services | length > 0
+  when:
+    - not already_subvol_mount
+    - subvol.stop_services | length > 0
 

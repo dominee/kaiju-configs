@@ -18,8 +18,8 @@ services:
     container_name: grafana
     restart: unless-stopped
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER={{ grafana_admin_user | default('dominee') }}
+      - GF_SECURITY_ADMIN_PASSWORD={{ grafana_admin_password }}
     volumes:
       - grafana_data:/var/lib/grafana
     labels:
@@ -80,6 +80,7 @@ services:
 {% endif %}
 {% if observability_basic_auth_enabled | default(true) | bool %}
       - traefik.http.routers.dozzle.middlewares=observability-auth@docker
+      - traefik.http.middlewares.observability-auth.basicauth.users={{ (observability_basic_auth_users | default([])) | join(',') }}
 {% endif %}
       - traefik.http.services.dozzle.loadbalancer.server.port=8080
       - traefik.docker.network=proxy

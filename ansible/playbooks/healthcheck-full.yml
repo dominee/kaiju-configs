@@ -13,8 +13,8 @@
     healthcheck_dozzle_host: "{{ dozzle_fqdn | default('logs.' + domain) }}"
 
   tasks:
-    - name: Include basic healthcheck tasks
-      ansible.builtin.import_playbook: healthcheck-basic.yml
+    - name: Run basic healthcheck tasks
+      ansible.builtin.import_tasks: healthcheck-basic-tasks.yml
 
     - name: Check BTRFS filesystem health
       ansible.builtin.command: btrfs filesystem df /
@@ -37,9 +37,11 @@
         var: btrfs_scrub.stdout_lines
 
     - name: Check that Traefik container is running
-      ansible.builtin.command: docker ps --format '{{ "{{.Names}}" }}' | grep -w traefik
+      ansible.builtin.shell: docker ps --format '{{ "{{.Names}}" }}' | grep -w traefik
       register: traefik_running
       changed_when: false
+      args:
+        executable: /bin/bash
 
     - name: Fail if Traefik is not running
       ansible.builtin.fail:
@@ -47,10 +49,12 @@
       when: traefik_running.rc != 0
 
     - name: Check that Mailcow nginx-mailcow container is running
-      ansible.builtin.command: docker ps --format '{{ "{{.Names}}" }}' | grep -w mailcow-nginx-mailcow
+      ansible.builtin.shell: docker ps --format '{{ "{{.Names}}" }}' | grep -w mailcow-nginx-mailcow
       register: mailcow_nginx_running
       changed_when: false
       failed_when: false
+      args:
+        executable: /bin/bash
 
     - name: Warn if Mailcow nginx-mailcow is not running
       ansible.builtin.debug:
@@ -58,10 +62,12 @@
       when: mailcow_nginx_running.rc != 0
 
     - name: Check that observability (prometheus, grafana, dozzle) containers are running
-      ansible.builtin.command: docker ps --format '{{ "{{.Names}}" }}' | grep -E 'prometheus|grafana|dozzle'
+      ansible.builtin.shell: docker ps --format '{{ "{{.Names}}" }}' | grep -E 'prometheus|grafana|dozzle'
       register: observability_containers
       changed_when: false
       failed_when: false
+      args:
+        executable: /bin/bash
 
     - name: Display observability containers state
       ansible.builtin.debug:
@@ -104,9 +110,11 @@
       failed_when: false
 
     - name: Check that mail ports are listening (25, 465, 587, 993)
-      ansible.builtin.command: ss -tln '( sport = :25 or sport = :465 or sport = :587 or sport = :993 )'
+      ansible.builtin.shell: ss -tln '( sport = :25 or sport = :465 or sport = :587 or sport = :993 )'
       register: mail_ports
       changed_when: false
+      args:
+        executable: /bin/bash
 
     - name: Display mail ports listening state
       ansible.builtin.debug:

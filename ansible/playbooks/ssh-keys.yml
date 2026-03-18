@@ -13,6 +13,22 @@
     ssh_keys_dir: "{{ playbook_dir | dirname }}/files/ssh-keys/dominee"
 
   tasks:
+    - name: Find public key files for dominee (on controller)
+      ansible.builtin.find:
+        paths: "{{ ssh_keys_dir }}"
+        patterns: "*.pub"
+        file_type: file
+      delegate_to: localhost
+      run_once: true
+      register: dominee_key_files
+
+    - name: Abort if no public keys were found for dominee (on controller)
+      ansible.builtin.fail:
+        msg: "No public keys found in {{ ssh_keys_dir }} for dominee."
+      delegate_to: localhost
+      run_once: true
+      when: dominee_key_files.matched | int == 0
+
     - name: Ensure .ssh directory exists for dominee
       ansible.builtin.file:
         path: "/home/dominee/.ssh"
@@ -21,30 +37,12 @@
         group: "dominee"
         mode: "0700"
 
-    - name: Find public key files for dominee
-      ansible.builtin.find:
-        paths: "{{ ssh_keys_dir }}"
-        patterns: "*.pub"
-        file_type: file
-      register: dominee_key_files
-
-    - name: Abort if no public keys were found for dominee
-      ansible.builtin.fail:
-        msg: "No public keys found in {{ ssh_keys_dir }} for dominee."
-      when: dominee_key_files.matched | int == 0
-
-    - name: Read dominee public key files
-      ansible.builtin.slurp:
-        src: "{{ item.path }}"
-      loop: "{{ dominee_key_files.files }}"
-      register: dominee_keys
-
     - name: Deploy dominee authorized_keys from all public key files
       ansible.builtin.authorized_key:
         user: "dominee"
-        key: "{{ (item.content | b64decode).strip() }}"
+        key: "{{ lookup('file', item.path) | trim }}"
         state: present
         manage_dir: false
-      loop: "{{ dominee_keys.results }}"
+      loop: "{{ dominee_key_files.files }}"
 
 

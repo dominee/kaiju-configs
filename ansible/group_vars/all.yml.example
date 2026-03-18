@@ -78,6 +78,10 @@ grafana_fqdn: "metrics.{{ domain }}"
 observability_basic_auth_enabled: true
 observability_basic_auth_users: []
 
+# Grafana credentials (set password via ansible-vault in group_vars/all.yml).
+grafana_admin_user: "dominee"
+# grafana_admin_password: "set-this-in-vault"
+
 # Prometheus scrape configuration basics.
 prometheus_retention_time: "15d"
 prometheus_scrape_interval: "15s"
@@ -85,7 +89,7 @@ prometheus_scrape_interval: "15s"
 # Optional: Mailcow Prometheus exporter.
 # If you deploy a mailcow exporter container, set:
 # mailcow_exporter_enabled: true
-# mailcow_exporter_url: "http://mailcow-exporter:9125/metrics"
+# mailcow_exporter_target: "mailcow-exporter:9125"
 
 # --- Mail migration (IMAP) ---
 # Mailbox migration from abyss.hell.sk to Mailcow using imapsync.

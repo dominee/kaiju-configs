@@ -1,0 +1,109 @@
+---
+# Preflight validation for kaiju stack.
+# Run before any deploy playbook:
+#   ansible-playbook -i ../inventory/hosts.yml playbooks/preflight.yml
+#
+# This playbook fails fast when required variables or on-host prerequisites are missing.
+
+- name: Preflight (controller-side variable checks)
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Require domain convention
+      ansible.builtin.assert:
+        that:
+          - domain is defined
+          - domain | length > 0
+          - domain == "hell.sk"
+        fail_msg: "domain must be set to hell.sk for this repository."
+
+    - name: Require Cloudflare API token for ACME/DNS automation
+      ansible.builtin.assert:
+        that:
+          - cloudflare_api_token is defined
+          - cloudflare_api_token | length > 0
+          - cloudflare_api_token != "your-cloudflare-api-token"
+        fail_msg: "cloudflare_api_token must be set (real token) in group_vars/all.yml (use ansible-vault if preferred)."
+
+    - name: Require web_ip and mail_ip for DNS split-host setup
+      ansible.builtin.assert:
+        that:
+          - web_ip is defined
+          - mail_ip is defined
+          - web_ip | length > 0
+          - mail_ip | length > 0
+        fail_msg: "web_ip and mail_ip must be set in group_vars/all.yml."
+
+    - name: Require key FQDN variables
+      ansible.builtin.assert:
+        that:
+          - kaiju_fqdn is defined
+          - mailcow_fqdn is defined
+          - mailcow_webmail_fqdn is defined
+        fail_msg: "kaiju_fqdn, mailcow_fqdn, and mailcow_webmail_fqdn must be set in group_vars/all.yml."
+
+    - name: Require observability Basic Auth configuration when enabled
+      ansible.builtin.assert:
+        that:
+          - (observability_basic_auth_users | default([])) | length > 0
+        fail_msg: "observability_basic_auth_enabled is true but observability_basic_auth_users is empty. Set htpasswd entries in group_vars/all.yml (use ansible-vault)."
+      when: observability_basic_auth_enabled | default(true) | bool
+
+    - name: Require Grafana admin password
+      ansible.builtin.assert:
+        that:
+          - grafana_admin_password is defined
+          - grafana_admin_password | length > 0
+        fail_msg: "grafana_admin_password must be set in group_vars/all.yml (use ansible-vault)."
+
+- name: Preflight (host-side checks)
+  hosts: kaiju
+  become: true
+  gather_facts: false
+  vars:
+    traefik_install_path: /opt/traefik
+  tasks:
+    - name: Verify required commands exist
+      ansible.builtin.command: "command -v {{ item }}"
+      loop:
+        - docker
+        - findmnt
+      register: cmd_check
+      changed_when: false
+
+    - name: Fail if a required command is missing
+      ansible.builtin.fail:
+        msg: "Missing required command: {{ item.item }}"
+      when: item.rc != 0
+      loop: "{{ cmd_check.results }}"
+
+    - name: Check Cloudflare Origin cert files when enabled
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ traefik_install_path }}/certs/origin.pem"
+        - "{{ traefik_install_path }}/certs/origin-key.pem"
+      register: origin_cert_stats
+      when: cloudflare_origin_cert_enabled | default(false) | bool
+
+    - name: Fail if Origin cert files are missing
+      ansible.builtin.fail:
+        msg: "cloudflare_origin_cert_enabled is true but Origin cert file is missing: {{ item.item }}"
+      when:
+        - cloudflare_origin_cert_enabled | default(false) | bool
+        - not item.stat.exists
+      loop: "{{ origin_cert_stats.results | default([]) }}"
+
+    - name: Check mailcow install path exists (if mailcow_install_path set)
+      ansible.builtin.stat:
+        path: "{{ mailcow_install_path }}"
+      register: mailcow_path_stat
+      when: mailcow_install_path is defined
+
+    - name: Fail if mailcow_install_path does not exist
+      ansible.builtin.fail:
+        msg: "mailcow_install_path does not exist on host: {{ mailcow_install_path }} (mount /vault first)."
+      when:
+        - mailcow_install_path is defined
+        - not mailcow_path_stat.stat.exists
+

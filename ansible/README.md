@@ -65,6 +65,7 @@ From the repository root:
 
 ```bash
 cd ansible
+ansible-playbook -i inventory/hosts.yml playbooks/preflight.yml
 ansible-playbook -i inventory/hosts.yml playbooks/harden.yml
 ansible-playbook -i inventory/hosts.yml playbooks/docker.yml
 ansible-playbook -i inventory/hosts.yml playbooks/mailcow.yml
@@ -95,6 +96,7 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 - **dns-cloudflare.yml** — create/update core A records in Cloudflare for `hell.sk` hostnames (kaiju/mail/webmail/autoconfig/autodiscover/metrics/logs + `static_web_vhosts` under `hell.sk`).
 - **mail-dns-records.yml** — create/update mail DNS essentials in Cloudflare (MX/SPF/DMARC and optional DKIM TXT) for `hell.sk`.
 - **dns-validate.yml** — validate that Cloudflare DNS records match expected values (core A records + mail essentials), failing fast on drift before cutovers.
+- **preflight.yml** — validate required variables and prerequisites before deploying (Cloudflare token, IP/FQDNs, Origin cert presence when enabled, observability auth, Grafana admin password, mailcow path).
 
 ## Certificate strategy
 

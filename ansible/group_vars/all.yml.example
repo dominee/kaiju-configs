@@ -64,6 +64,9 @@ static_web_vhosts:
   - { fqdn: "goldendawns-clan.cz", doc_root: "goldendawns-clan.cz" }
   - { fqdn: "www.goldendawns-clan.cz", doc_root: "goldendawns-clan.cz" }
 
+# Default document root for the fallback single-vhost config (when static_web_vhosts is not set).
+# static_web_default_doc_root: "{{ domain }}"
+
 # --- Observability / monitoring ---
 # Hostnames for observability UIs (served via Traefik).
 dozzle_fqdn: "logs.{{ domain }}"
@@ -81,6 +84,11 @@ observability_basic_auth_users: []
 # Grafana credentials (set password via ansible-vault in group_vars/all.yml).
 grafana_admin_user: "dominee"
 # grafana_admin_password: "set-this-in-vault"
+
+# Optional: healthcheck settings
+# healthcheck_validate_certs: false
+# healthcheck_basic_auth_user: "dominee"
+# healthcheck_basic_auth_password: "..."
 
 # Prometheus scrape configuration basics.
 prometheus_retention_time: "15d"

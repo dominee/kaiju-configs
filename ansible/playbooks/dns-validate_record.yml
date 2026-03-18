@@ -19,6 +19,11 @@
     msg: "Missing DNS record: {{ exp.type }} {{ exp.name }}"
   when: cf_lookup.json.result | length == 0
 
+- name: Fail if multiple matching records exist for {{ exp.type }} {{ exp.name }}
+  ansible.builtin.fail:
+    msg: "Multiple DNS records exist for {{ exp.type }} {{ exp.name }}; please deduplicate in Cloudflare to make validation deterministic."
+  when: cf_lookup.json.result | length > 1
+
 - name: Select first matching record
   ansible.builtin.set_fact:
     cf_found: "{{ (cf_lookup.json.result | first) }}"

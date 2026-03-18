@@ -18,7 +18,7 @@
 
   vars:
     cf_api_base: "https://api.cloudflare.com/client/v4"
-    cf_zone_name: "{{ domain }}"
+    cf_zone_name: "{{ cloudflare_zone_name | default(domain) }}"
 
     mail_mx_host: "{{ mailcow_fqdn | default('mail.' + domain) }}"
     mail_mx_priority: "{{ mail_mx_priority | default(10) }}"

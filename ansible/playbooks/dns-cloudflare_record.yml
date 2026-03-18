@@ -14,6 +14,11 @@
     return_content: true
   register: cf_lookup
 
+- name: Fail if multiple matching records exist for {{ rec.type }} {{ rec.name }}
+  ansible.builtin.fail:
+    msg: "Multiple DNS records exist for {{ rec.type }} {{ rec.name }}; please deduplicate in Cloudflare before running automation."
+  when: cf_lookup.json.result | length > 1
+
 - name: Set existing record fact (if any)
   ansible.builtin.set_fact:
     cf_existing: "{{ (cf_lookup.json.result | first) if (cf_lookup.json.result | length > 0) else None }}"

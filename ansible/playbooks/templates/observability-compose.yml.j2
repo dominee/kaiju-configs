@@ -42,12 +42,13 @@ services:
     image: prom/node-exporter:latest
     container_name: node-exporter
     restart: unless-stopped
-    pid: host
-    network_mode: host
     command:
       - "--path.rootfs=/host"
+      - "--web.listen-address=:9100"
     volumes:
       - /:/host:ro,rslave
+    networks:
+      - proxy
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest

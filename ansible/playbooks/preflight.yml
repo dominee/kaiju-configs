@@ -14,8 +14,8 @@
         that:
           - domain is defined
           - domain | length > 0
-          - domain == "hell.sk"
-        fail_msg: "domain must be set to hell.sk for this repository."
+          - (enforce_hell_sk_domain | default(true) | bool) | ternary(domain == "hell.sk", true)
+        fail_msg: "domain must be set to hell.sk for this repository (or set enforce_hell_sk_domain: false explicitly)."
 
     - name: Require Cloudflare API token for ACME/DNS automation
       ansible.builtin.assert:

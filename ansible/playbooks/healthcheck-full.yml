@@ -11,6 +11,10 @@
     healthcheck_mail_host: "{{ mailcow_fqdn }}"
     healthcheck_grafana_host: "{{ grafana_fqdn | default('metrics.' + domain) }}"
     healthcheck_dozzle_host: "{{ dozzle_fqdn | default('logs.' + domain) }}"
+    healthcheck_validate_certs: "{{ healthcheck_validate_certs | default(false) | bool }}"
+    # Optional: set to validate Basic Auth protected endpoints (Grafana/Dozzle)
+    # healthcheck_basic_auth_user: "dominee"
+    # healthcheck_basic_auth_password: "..."
 
   tasks:
     - name: Run basic healthcheck tasks
@@ -78,7 +82,7 @@
         url: "https://{{ healthcheck_web_host }}/"
         method: GET
         return_content: false
-        validate_certs: false
+        validate_certs: "{{ healthcheck_validate_certs }}"
       register: web_check
       failed_when: web_check.status | default(0) < 200 or web_check.status | default(0) >= 400
 
@@ -87,7 +91,7 @@
         url: "https://{{ healthcheck_mail_host }}/"
         method: GET
         return_content: false
-        validate_certs: false
+        validate_certs: "{{ healthcheck_validate_certs }}"
       register: mailcow_check
       failed_when: mailcow_check.status | default(0) < 200 or mailcow_check.status | default(0) >= 400
 
@@ -96,18 +100,26 @@
         url: "https://{{ healthcheck_grafana_host }}/login"
         method: GET
         return_content: false
-        validate_certs: false
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        url_username: "{{ healthcheck_basic_auth_user | default(omit) }}"
+        url_password: "{{ healthcheck_basic_auth_password | default(omit) }}"
       register: grafana_check
-      failed_when: false
+      failed_when:
+        - healthcheck_basic_auth_user is defined and healthcheck_basic_auth_password is defined
+        - grafana_check.status | default(0) < 200 or grafana_check.status | default(0) >= 400
 
     - name: HTTP check for Dozzle (logs UI)
       ansible.builtin.uri:
         url: "https://{{ healthcheck_dozzle_host }}/"
         method: GET
         return_content: false
-        validate_certs: false
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        url_username: "{{ healthcheck_basic_auth_user | default(omit) }}"
+        url_password: "{{ healthcheck_basic_auth_password | default(omit) }}"
       register: dozzle_check
-      failed_when: false
+      failed_when:
+        - healthcheck_basic_auth_user is defined and healthcheck_basic_auth_password is defined
+        - dozzle_check.status | default(0) < 200 or dozzle_check.status | default(0) >= 400
 
     - name: Check that mail ports are listening (25, 465, 587, 993)
       ansible.builtin.shell: ss -tln '( sport = :25 or sport = :465 or sport = :587 or sport = :993 )'

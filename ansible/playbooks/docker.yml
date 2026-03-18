@@ -165,7 +165,7 @@
 
     - name: Set default static web vhosts when not defined
       ansible.builtin.set_fact:
-        static_web_vhosts: "{{ [{ fqdn: (static_web_fqdn | default('www.' + domain)), doc_root: (static_web_fqdn | default('www.' + domain)) }] }}"
+        static_web_vhosts: "{{ [{ fqdn: (static_web_fqdn | default('www.' + domain)), doc_root: (static_web_default_doc_root | default(domain)) }] }}"
       when: static_web_vhosts is not defined or static_web_vhosts | length == 0
 
     - name: Get unique static web document roots

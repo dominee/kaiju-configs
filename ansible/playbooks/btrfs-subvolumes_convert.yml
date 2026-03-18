@@ -55,11 +55,36 @@
     mode: "0755"
   when: not already_subvol_mount
 
-- name: Rsync data from {{ subvol.mountpoint }} into subvolume {{ subvol.name }}
+- name: Check for conversion marker in subvolume {{ subvol.name }}
+  ansible.builtin.stat:
+    path: "{{ btrfs_root_mount }}/{{ subvol.name }}/.kaiju_subvol_converted"
+  register: conversion_marker
+  when: not already_subvol_mount
+
+- name: Rsync data into subvolume {{ subvol.name }} (first run, destructive mirror)
   ansible.builtin.command: >
     rsync -aAX --delete {{ subvol.mountpoint }}/ {{ btrfs_root_mount }}/{{ subvol.name }}/
   changed_when: true
-  when: not already_subvol_mount
+  when:
+    - not already_subvol_mount
+    - not conversion_marker.stat.exists
+
+- name: Rsync data into subvolume {{ subvol.name }} (subsequent run, no delete)
+  ansible.builtin.command: >
+    rsync -aAX {{ subvol.mountpoint }}/ {{ btrfs_root_mount }}/{{ subvol.name }}/
+  changed_when: true
+  when:
+    - not already_subvol_mount
+    - conversion_marker.stat.exists
+
+- name: Create conversion marker in subvolume {{ subvol.name }}
+  ansible.builtin.file:
+    path: "{{ btrfs_root_mount }}/{{ subvol.name }}/.kaiju_subvol_converted"
+    state: touch
+    mode: "0644"
+  when:
+    - not already_subvol_mount
+    - not conversion_marker.stat.exists
 
 - name: Mount subvolume {{ subvol.name }} at {{ subvol.mountpoint }} and persist in fstab
   ansible.builtin.mount:

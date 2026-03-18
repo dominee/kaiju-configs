@@ -19,13 +19,7 @@
 
   vars:
     cf_api_base: "https://api.cloudflare.com/client/v4"
-    cf_zone_name: "{{ domain }}"
-
-    # Records we consider "mail transport" (must not be proxied by Cloudflare).
-    cf_dns_only_fqdns:
-      - "{{ mailcow_fqdn | default('mail.' + domain) }}"
-      - "autodiscover.{{ domain }}"
-      - "autoconfig.{{ domain }}"
+    cf_zone_name: "{{ cloudflare_zone_name | default(domain) }}"
 
     # Optional: webmail is HTTP; can be proxied. Default false unless you set it true.
     cf_webmail_proxied: "{{ cf_webmail_proxied | default(false) | bool }}"

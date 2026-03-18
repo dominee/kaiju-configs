@@ -51,6 +51,25 @@
         mode: "0600"
       when: not mailcow_conf_stat.stat.exists
 
+    - name: Persist a backup copy of mailcow.conf on first install (secrets)
+      ansible.builtin.copy:
+        src: "{{ mailcow_install_path }}/mailcow.conf"
+        dest: "/root/mailcow.conf.initial"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+        force: false
+      when: not mailcow_conf_stat.stat.exists
+
+    - name: Warn to vault mailcow.conf secrets after first install
+      ansible.builtin.debug:
+        msg:
+          - "Mailcow secrets were generated and written to {{ mailcow_install_path }}/mailcow.conf."
+          - "A one-time backup copy was saved to /root/mailcow.conf.initial (0600)."
+          - "Best practice: store these secrets in ansible-vault (group_vars/all.yml) or an external secret manager."
+      when: not mailcow_conf_stat.stat.exists
+
     - name: Create .env symlink to mailcow.conf
       ansible.builtin.file:
         src: mailcow.conf

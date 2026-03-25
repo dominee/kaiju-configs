@@ -9,77 +9,139 @@ Mark items with `[x]` as you complete them.
 ## Phase 0 — Prerequisites (controller workstation)
 
 ### 0.1 Ansible installation
-- [ ] Install Python 3.10+: `python3 --version`
-- [ ] Install pip: `python3 -m ensurepip --upgrade`
-- [ ] Install Ansible: `pip install --user ansible`
-- [ ] Verify: `ansible --version` (expect ≥ 2.15)
-- [ ] Install required collections:
+- [x] Install Ansible: `brew install ansible`
+- [x] Verify: `ansible --version` (core 2.20.3)
+- [x] Install required collections:
   ```bash
   ansible-galaxy collection install community.general
   ```
-- [ ] Install `htpasswd` utility (for generating Basic Auth hashes):
+- [x] Install `htpasswd` utility (for generating Basic Auth hashes):
   ```bash
   # Debian/Ubuntu: apt install apache2-utils
   # macOS: brew install httpd
   htpasswd -nbB dominee 'YOUR_PASSWORD'
   ```
-- [ ] Install `imapsync` if running mailbox migration directly from controller:
+- [x] Install `imapsync` if running mailbox migration directly from controller:
   - Otherwise it runs on the server (done by the playbook)
 
 ### 0.2 Repository setup (controller)
-- [ ] Clone this repository:
+- [x] Clone this repository:
   ```bash
   git clone git@github.com:<user>/kaiju-configs.git
   cd kaiju-configs/ansible
   ```
-- [ ] Create `inventory/hosts.yml` from example:
+- [x] Create `inventory/hosts.yml` from example:
   ```bash
   cp inventory/hosts.yml.example inventory/hosts.yml
   ```
-- [ ] Create `group_vars/all.yml` from example:
+- [x] Create `group_vars/all.yml` from example:
   ```bash
   cp group_vars/all.yml.example group_vars/all.yml
   ```
-- [ ] Generate/place SSH key for `dominee` (if not yet done):
+- [x] Generate/place SSH key for `dominee` (if not yet done):
   ```bash
   ssh-keygen -t ed25519 -C "dominee@kaiju-deploy"
   ```
-- [ ] Place public key files in `ansible/files/ssh-keys/dominee/`:
+- [x] Place public key files in `ansible/files/ssh-keys/dominee/`:
   - One `.pub` file per key device/machine
 
 ### 0.3 Secrets and credentials
+
+#### Cloudflare API token
 - [ ] Obtain Cloudflare API token (Zone.DNS Read+Write, Zone.Zone Read):
   - Cloudflare dashboard → My Profile → API Tokens → Create Token
-- [ ] Decide on secret management strategy:
-  - **ansible-vault** (recommended): `ansible-vault encrypt_string 'VALUE' --name 'VAR'`
-  - Plain `group_vars/all.yml` (gitignored)
-- [ ] Set in `group_vars/all.yml`:
-  - `cloudflare_api_token`
-  - `grafana_admin_password`
-  - `observability_basic_auth_users` (htpasswd bcrypt entry for `dominee`)
-  - `mailcow_dbpass`, `mailcow_dbroot`, `mailcow_redispass`, `mailcow_sogo_key`
-    (leave unset on first run to auto-generate, then copy from `/root/mailcow.conf.initial`)
-  - `imapsync_accounts` (user/source_password/dest_password for 3 mailboxes)
-- [ ] Populate `inventory/hosts.yml`:
+  - Scope: `Zone.DNS — Edit`, `Zone.Zone — Read` for `hell.sk`
+
+#### ansible-vault setup
+- [x] Decide on secret management strategy: **ansible-vault** (file-level encryption)
+- [x] Create a strong vault password and store it in your password manager
+- [-] Wire vault password file into `ansible.cfg` (create if missing):
+  ```bash
+  cat > ansible/ansible.cfg <<'EOF'
+  [defaults]
+  vault_password_file = ~/keys/ansible/.ansible-vault-kaiju
+  EOF
+  ```
+  - Alternatively pass `--vault-password-file ~/keys/ansible/.ansible-vault-kaiju` on each run
+- [x] Verify vault tooling works:
+  ```bash
+  echo 'test' | ansible-vault encrypt_string --stdin-name test_var
+  ```
+
+#### Populate secrets in group_vars/all.yml
+- [ ] Set `cloudflare_api_token` using ansible-vault inline string:
+  ```bash
+  ansible-vault encrypt_string 'YOUR_CF_TOKEN' --name 'cloudflare_api_token'
+  # Paste the output block into group_vars/all.yml
+  ```
+- [x] Set `grafana_admin_password`:
+  ```bash
+  ansible-vault encrypt_string 'YOUR_GRAFANA_PASSWORD' --name 'grafana_admin_password'
+  ```
+- [x] Generate htpasswd entry and set `observability_basic_auth_users`:
+  ```bash
+  htpasswd -nbB dominee 'YOUR_BASICAUTH_PASSWORD'
+  # Copy the output (e.g. dominee:$2y$05$...) then:
+  ansible-vault encrypt_string 'dominee:$2y$05$...' --name 'observability_basic_auth_users_0'
+  ```
+  - In `group_vars/all.yml` the final structure should be:
+    ```yaml
+    observability_basic_auth_users: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          ...
+    ```
+- [x] Set `mailcow_dbpass`, `mailcow_dbroot`, `mailcow_redispass`, `mailcow_sogo_key`:
+  - [-] **Option A (recommended for first install):** leave unset — playbook auto-generates them.
+    After first run, copy values from `/root/mailcow.conf.initial` on the server and vault them.
+  - [x] **Option B (reproducible installs):** pre-generate with `openssl rand -base64 24` and vault each.
+- [ ] Set `imapsync_accounts` (with passwords vaulted inline):
+  ```yaml
+  imapsync_accounts:
+    - user: "dominee@hell.sk"
+      source_password: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          ...
+      dest_password: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          ...
+    - user: "djiabliq@hell.sk"
+      source_password: !vault |
+          ...
+      dest_password: !vault |
+          ...
+    - user: "celo@hell.sk"
+      source_password: !vault |
+          ...
+      dest_password: !vault |
+          ...
+  ```
+- [ ] Verify all vaulted variables decrypt and are readable:
+  ```bash
+  ansible -i inventory/hosts.yml localhost -m debug -a "var=cloudflare_api_token"
+  ansible -i inventory/hosts.yml localhost -m debug -a "var=grafana_admin_password"
+  ```
+
+#### Inventory
+- [x] Populate `inventory/hosts.yml`:
   - Set `ansible_host` to lab IP or `kaiju.hell.sk`
   - Set `ansible_user: dominee`
   - Set `ansible_ssh_private_key_file`
 
 ### 0.4 Managed node (kaiju) — initial OS access
-- [ ] Confirm SSH access with key:
+- [x] Confirm SSH access with key:
   ```bash
   ssh dominee@10.101.10.73
   ```
-- [ ] Confirm `sudo` works for `dominee` without password (required for `become: true`):
+- [x] Confirm `sudo` works for `dominee` without password (required for `become: true`):
   ```bash
   sudo -n true && echo ok
   ```
-- [ ] Confirm Python 3 is installed on managed node:
+- [x] Confirm Python 3 is installed on managed node:
   ```bash
   python3 --version
   ```
-- [ ] If not: `sudo apt install -y python3`
-- [ ] Confirm Ansible can connect:
+- [x] If not: `sudo apt install -y python3`
+- [x] Confirm Ansible can connect:
   ```bash
   ansible -i inventory/hosts.yml kaiju -m ping
   ```

@@ -48,7 +48,7 @@ Mark items with `[x]` as you complete them.
 ### 0.3 Secrets and credentials
 
 #### Cloudflare API token
-- [ ] Obtain Cloudflare API token (Zone.DNS Read+Write, Zone.Zone Read):
+- [x] Obtain Cloudflare API token (Zone.DNS Read+Write, Zone.Zone Read):
   - Cloudflare dashboard → My Profile → API Tokens → Create Token
   - Scope: `Zone.DNS — Edit`, `Zone.Zone — Read` for `hell.sk`
 
@@ -69,7 +69,7 @@ Mark items with `[x]` as you complete them.
   ```
 
 #### Populate secrets in group_vars/all.yml
-- [ ] Set `cloudflare_api_token` using ansible-vault inline string:
+- [x] Set `cloudflare_api_token` using ansible-vault inline string:
   ```bash
   ansible-vault encrypt_string 'YOUR_CF_TOKEN' --name 'cloudflare_api_token'
   # Paste the output block into group_vars/all.yml
@@ -94,28 +94,8 @@ Mark items with `[x]` as you complete them.
   - [-] **Option A (recommended for first install):** leave unset — playbook auto-generates them.
     After first run, copy values from `/root/mailcow.conf.initial` on the server and vault them.
   - [x] **Option B (reproducible installs):** pre-generate with `openssl rand -base64 24` and vault each.
-- [ ] Set `imapsync_accounts` (with passwords vaulted inline):
-  ```yaml
-  imapsync_accounts:
-    - user: "dominee@hell.sk"
-      source_password: !vault |
-          $ANSIBLE_VAULT;1.1;AES256
-          ...
-      dest_password: !vault |
-          $ANSIBLE_VAULT;1.1;AES256
-          ...
-    - user: "djiabliq@hell.sk"
-      source_password: !vault |
-          ...
-      dest_password: !vault |
-          ...
-    - user: "celo@hell.sk"
-      source_password: !vault |
-          ...
-      dest_password: !vault |
-          ...
-  ```
-- [ ] Verify all vaulted variables decrypt and are readable:
+- [x] Set `imapsync_accounts` (with passwords vaulted inline).
+  - [x] Verify all vaulted variables decrypt and are readable:
   ```bash
   ansible -i inventory/hosts.yml localhost -m debug -a "var=cloudflare_api_token"
   ansible -i inventory/hosts.yml localhost -m debug -a "var=grafana_admin_password"
@@ -287,8 +267,8 @@ Mark items with `[x]` as you complete them.
 - [ ] All DNS validation assertions pass
 
 ### 2.4 TLS certificate validation
-- [ ] Cloudflare Origin Cert (if `cloudflare_origin_cert_enabled: true`):
-  - [ ] Generate Origin Cert in Cloudflare dashboard (SSL/TLS → Origin Server)
+- [x] Cloudflare Origin Cert (if `cloudflare_origin_cert_enabled: true`):
+  - [x] Generate Origin Cert in Cloudflare dashboard (SSL/TLS → Origin Server)
   - [ ] Place `origin.pem` and `origin-key.pem` in `/opt/traefik/certs/`
   - [ ] Redeploy Traefik: re-run `docker.yml`
 - [ ] ACME certs (mail hostnames):

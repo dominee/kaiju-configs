@@ -30,8 +30,20 @@ cloudflare_api_token: "your-cloudflare-api-token"
 # Web services behind Cloudflare shield use Cloudflare Origin Certificates.
 # Set to true after placing origin.pem and origin-key.pem in /opt/traefik/certs/
 cloudflare_origin_cert_enabled: false
-# Cloudflare Origin Cert: place origin.pem and origin-key.pem in /opt/traefik/certs/
-# (from Cloudflare dashboard: SSL/TLS > Origin Server > Create Certificate)
+# Cloudflare Origin Cert: place cert/key pairs in /opt/traefik/certs/ before deploying.
+# Origin Certs are per Cloudflare zone. Add one entry per zone (e.g. hell.sk AND goldendawns-clan.cz).
+# If a static_web_vhosts FQDN is outside the primary domain, it needs its own cert pair here
+# or must rely on ACME instead (set cloudflare_origin_cert_enabled: false and use certresolver).
+# Default (single pair for primary domain):
+# origin_cert_pairs:
+#   - cert_file: /certs/origin.pem
+#     key_file:  /certs/origin-key.pem
+# Multi-zone example:
+# origin_cert_pairs:
+#   - cert_file: /certs/origin-hell-sk.pem
+#     key_file:  /certs/origin-hell-sk-key.pem
+#   - cert_file: /certs/origin-goldendawns-clan-cz.pem
+#     key_file:  /certs/origin-goldendawns-clan-cz-key.pem
 
 # --- Cloudflare DNS automation ---
 # Used by dns-cloudflare.yml and mail-dns-records.yml. Token should have Zone.DNS edit permissions.

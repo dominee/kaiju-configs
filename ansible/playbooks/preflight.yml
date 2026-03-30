@@ -49,12 +49,46 @@
         fail_msg: "observability_basic_auth_enabled is true but observability_basic_auth_users is empty. Set htpasswd entries in group_vars/all.yml (use ansible-vault)."
       when: observability_basic_auth_enabled | default(true) | bool
 
+    - name: Require acme_email for Traefik ACME (mail certs)
+      ansible.builtin.assert:
+        that:
+          - acme_email is defined
+          - acme_email | length > 0
+          - '"@" in acme_email'
+        fail_msg: "acme_email must be set (e.g. admin@hell.sk) in group_vars/all.yml."
+
     - name: Require Grafana admin password
       ansible.builtin.assert:
         that:
           - grafana_admin_password is defined
           - grafana_admin_password | length > 0
         fail_msg: "grafana_admin_password must be set in group_vars/all.yml (use ansible-vault)."
+
+    - name: Require observability_basic_auth_users to be a list (not _0 suffix vars)
+      ansible.builtin.assert:
+        that:
+          - observability_basic_auth_users is iterable
+          - observability_basic_auth_users is not string
+        fail_msg: >
+          observability_basic_auth_users must be a YAML list in group_vars/all.yml.
+          Do NOT use observability_basic_auth_users_0 — structure it as:
+            observability_basic_auth_users:
+              - !vault |
+                  $ANSIBLE_VAULT;...
+      when: observability_basic_auth_enabled | default(true) | bool
+
+    - name: Warn about non-domain FQDNs in static_web_vhosts needing separate origin certs
+      ansible.builtin.debug:
+        msg: >
+          WARNING: static_web_vhosts contains FQDN '{{ item.fqdn }}' which is outside
+          the '{{ domain }}' zone. A single Cloudflare Origin Cert for '{{ domain }}'
+          will NOT cover it. Either: add a second origin cert pair to 'origin_cert_pairs'
+          in group_vars/all.yml, or rely on ACME (set cloudflare_origin_cert_enabled: false
+          for that zone). This is not enforced but will cause TLS errors if ignored.
+      when:
+        - cloudflare_origin_cert_enabled | default(false) | bool
+        - not (item.fqdn | regex_search('(^|\\.)' + (domain | regex_escape) + '$'))
+      loop: "{{ static_web_vhosts | default([]) }}"
 
 - name: Preflight (host-side checks)
   hosts: kaiju
@@ -63,36 +97,55 @@
   vars:
     traefik_install_path: /opt/traefik
   tasks:
-    - name: Verify required commands exist
-      ansible.builtin.command: "command -v {{ item }}"
+    - name: Verify required commands exist (pre-Docker install check)
+      ansible.builtin.shell: "which {{ item }}"
       loop:
-        #- docker
         - findmnt
+        - rsync
+        - openssl
       register: cmd_check
       changed_when: false
+      failed_when: false
+      args:
+        executable: /bin/bash
 
     - name: Fail if a required command is missing
       ansible.builtin.fail:
-        msg: "Missing required command: {{ item.item }}"
+        msg: "Missing required command: {{ item.item }} — install it before running playbooks."
       when: item.rc != 0
       loop: "{{ cmd_check.results }}"
 
     - name: Check Cloudflare Origin cert files when enabled
       ansible.builtin.stat:
-        path: "{{ item }}"
-      loop:
-        - "{{ traefik_install_path }}/certs/origin.pem"
-        - "{{ traefik_install_path }}/certs/origin-key.pem"
-      register: origin_cert_stats
+        path: "{{ item.cert_file }}"
+      loop: "{{ origin_cert_pairs | default([{'cert_file': traefik_install_path + '/certs/origin.pem', 'key_file': traefik_install_path + '/certs/origin-key.pem'}]) }}"
+      register: origin_cert_file_stats
       when: cloudflare_origin_cert_enabled | default(false) | bool
 
-    - name: Fail if Origin cert files are missing
+    - name: Check Cloudflare Origin key files when enabled
+      ansible.builtin.stat:
+        path: "{{ item.key_file }}"
+      loop: "{{ origin_cert_pairs | default([{'cert_file': traefik_install_path + '/certs/origin.pem', 'key_file': traefik_install_path + '/certs/origin-key.pem'}]) }}"
+      register: origin_key_file_stats
+      when: cloudflare_origin_cert_enabled | default(false) | bool
+
+    - name: Fail if any Origin cert file is missing
       ansible.builtin.fail:
-        msg: "cloudflare_origin_cert_enabled is true but Origin cert file is missing: {{ item.item }}"
+        msg: "cloudflare_origin_cert_enabled is true but cert file missing: {{ item.item.cert_file }}"
       when:
         - cloudflare_origin_cert_enabled | default(false) | bool
+        - item.stat is defined
         - not item.stat.exists
-      loop: "{{ origin_cert_stats.results | default([]) }}"
+      loop: "{{ origin_cert_file_stats.results | default([]) }}"
+
+    - name: Fail if any Origin key file is missing
+      ansible.builtin.fail:
+        msg: "cloudflare_origin_cert_enabled is true but key file missing: {{ item.item.key_file }}"
+      when:
+        - cloudflare_origin_cert_enabled | default(false) | bool
+        - item.stat is defined
+        - not item.stat.exists
+      loop: "{{ origin_key_file_stats.results | default([]) }}"
 
     - name: Check mailcow install path exists (if mailcow_install_path set)
       ansible.builtin.stat:

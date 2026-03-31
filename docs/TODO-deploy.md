@@ -258,13 +258,15 @@ Mark items with `[x]` as you complete them.
   - `metrics.hell.sk` → `10.101.10.73`
   - `logs.hell.sk` → `10.101.10.73`
   - static vhosts → `10.101.10.73`
-- [ ] Run DNS automation to create/verify:
+- [ ] Run DNS automation to create/verify A records (safe — does NOT touch MX/SPF/DMARC):
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml
-  ansible-playbook -i inventory/hosts.yml playbooks/mail-dns-records.yml
+  # NOTE: mail-dns-records.yml is intentionally NOT run here.
+  # MX/SPF/DMARC still point to abyss.hell.sk (production). Run it only at cutover.
   ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
+  # Validates A records only (mail DNS validation is skipped by default during lab)
   ```
-- [ ] All DNS validation assertions pass
+- [ ] All DNS validation assertions pass (A records only)
 
 ### 2.4 TLS certificate validation
 - [x] Cloudflare Origin Cert (if `cloudflare_origin_cert_enabled: true`):
@@ -340,11 +342,17 @@ Mark items with `[x]` as you complete them.
 - [ ] Update Cloudflare A records to production IPs:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml
-  ansible-playbook -i inventory/hosts.yml playbooks/mail-dns-records.yml
   ```
   (or manually in Cloudflare dashboard if you prefer point-in-time control)
-- [ ] Update MX record if mail IP changed:
-  - `hell.sk MX 10 mail.hell.sk`
+- [ ] **Cut mail DNS over to kaiju** — only after imapsync final sync, mailcow confirmed healthy:
+  ```bash
+  # This WILL overwrite MX/SPF/DMARC. abyss.hell.sk will stop receiving mail immediately.
+  ansible-playbook -i inventory/hosts.yml playbooks/mail-dns-records.yml -e mail_dns_cutover_ready=true
+  ```
+- [ ] Validate post-cutover (A records + mail DNS):
+  ```bash
+  ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml -e validate_mail_dns=true
+  ```
 - [ ] Set appropriate proxy mode:
   - Web hostnames: **Proxied** (Cloudflare shield + Origin Cert)
   - Mail hostnames: **DNS-only** (SMTP/IMAPS cannot be proxied)
@@ -387,9 +395,9 @@ Mark items with `[x]` as you complete them.
   dkim_selector: "dkim"
   dkim_public_key: "v=DKIM1; k=rsa; p=MIIB..."
   ```
-- [ ] Push DKIM TXT record to Cloudflare:
+- [ ] Push DKIM TXT record to Cloudflare (requires cutover flag since DKIM is managed by the same playbook):
   ```bash
-  ansible-playbook -i inventory/hosts.yml playbooks/mail-dns-records.yml
+  ansible-playbook -i inventory/hosts.yml playbooks/mail-dns-records.yml -e mail_dns_cutover_ready=true
   ```
 - [ ] Validate DKIM signing on next outbound email (check headers)
 - [ ] After DKIM/SPF/DMARC all validated, tighten DMARC policy:
@@ -487,12 +495,14 @@ ansible-playbook -i inventory/hosts.yml playbooks/docker.yml
 ansible-playbook -i inventory/hosts.yml playbooks/mailcow.yml
 ansible-playbook -i inventory/hosts.yml playbooks/observability.yml
 ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml
-ansible-playbook -i inventory/hosts.yml playbooks/mail-dns-records.yml
+# NOTE: mail-dns-records.yml is NOT run here — MX/SPF/DMARC are only pushed at production cutover
+# ansible-playbook -i inventory/hosts.yml playbooks/mail-dns-records.yml -e mail_dns_cutover_ready=true
 
 # Phase 2 (lab validation)
 ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-basic.yml
 ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-full.yml
 ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
+# mail DNS validation is skipped by default; add -e validate_mail_dns=true post-cutover
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml -e imapsync_dry_run=true
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml
 

@@ -7,6 +7,12 @@
 # - Mail essentials (MX, SPF, DMARC; DKIM optional if provided)
 #
 # Fails if records are missing or drifted.
+#
+# *** PRODUCTION SAFETY GUARD (mail records) ***
+# During lab, MX/SPF/DMARC still point to abyss.hell.sk and WILL differ from group_vars values.
+# By default, mail record validation is SKIPPED (validate_mail_dns: false).
+# Only enable after mail-dns-records.yml has been run for the production cutover:
+#   ansible-playbook playbooks/dns-validate.yml -e validate_mail_dns=true
 
 - name: Validate Cloudflare DNS records
   hosts: localhost
@@ -95,12 +101,21 @@
       loop_control:
         loop_var: exp
 
+    - name: Skipping mail DNS validation (validate_mail_dns not set)
+      ansible.builtin.debug:
+        msg: >
+          Mail DNS validation (MX/SPF/DMARC/DKIM) is SKIPPED during lab.
+          These records still point to abyss.hell.sk and will differ from group_vars.
+          Re-run with -e validate_mail_dns=true after production cutover.
+      when: not (validate_mail_dns | default(false) | bool)
+
     - name: Build expected mail DNS records list
       ansible.builtin.set_fact:
         expected_mail_records:
-          - { type: "MX",  name: "{{ expected_mx_name }}",        content: "{{ expected_mx_target }}", priority: "{{ expected_mx_priority }}", proxied: false }
-          - { type: "TXT", name: "{{ domain }}",                  content: "{{ expected_spf_value }}", proxied: false }
-          - { type: "TXT", name: "{{ expected_dmarc_name }}",     content: "{{ expected_dmarc_value }}", proxied: false }
+          - { type: "MX",  name: "{{ expected_mx_name }}",    content: "{{ expected_mx_target }}", priority: "{{ expected_mx_priority }}", proxied: false }
+          - { type: "TXT", name: "{{ domain }}",              content: "{{ expected_spf_value }}", proxied: false }
+          - { type: "TXT", name: "{{ expected_dmarc_name }}", content: "{{ expected_dmarc_value }}", proxied: false }
+      when: validate_mail_dns | default(false) | bool
 
     - name: Optionally add DKIM record expectation when dkim_public_key is defined
       ansible.builtin.set_fact:
@@ -109,15 +124,20 @@
             expected_mail_records
             + [ { 'type':'TXT', 'name': (dkim_selector | default('dkim')) + '._domainkey.' + domain, 'content': dkim_public_key, 'proxied': false } ]
           }}
-      when: dkim_public_key is defined and dkim_public_key | length > 0
+      when:
+        - validate_mail_dns | default(false) | bool
+        - dkim_public_key is defined and dkim_public_key | length > 0
 
     - name: Validate mail DNS records
       ansible.builtin.include_tasks: dns-validate_record.yml
-      loop: "{{ expected_mail_records }}"
+      loop: "{{ expected_mail_records | default([]) }}"
       loop_control:
         loop_var: exp
+      when: validate_mail_dns | default(false) | bool
 
     - name: DNS validation passed
       ansible.builtin.debug:
-        msg: "Cloudflare DNS validation passed for zone {{ cf_zone_name }}."
+        msg: >
+          Cloudflare DNS validation passed for zone {{ cf_zone_name }}.
+          {{ '' if (validate_mail_dns | default(false) | bool) else '(mail DNS records skipped — not in cutover mode)' }}
 

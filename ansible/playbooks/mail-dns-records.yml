@@ -2,11 +2,24 @@
 # Manage Cloudflare DNS records for mail essentials (hell.sk zone).
 # Run: ansible-playbook -i ../inventory/hosts.yml playbooks/mail-dns-records.yml
 #
-# This playbook handles:
+# *** PRODUCTION SAFETY GUARD ***
+# This playbook writes MX, SPF, DMARC, and DKIM records directly to the live Cloudflare zone.
+# Executing it while abyss.hell.sk is still the production mail server WILL break inbound mail.
+#
+# The flag `mail_dns_cutover_ready: true` MUST be explicitly set (via -e or group_vars) to allow
+# any writes. Without it the playbook runs in DRY-RUN/REPORT mode only — safe to run at any time.
+#
+# Usage:
+#   Dry-run (report only, no changes):
+#     ansible-playbook playbooks/mail-dns-records.yml
+#   Actual cutover (only run when kaiju is ready to receive mail):
+#     ansible-playbook playbooks/mail-dns-records.yml -e mail_dns_cutover_ready=true
+#
+# Records managed:
 # - MX for the apex domain
 # - SPF (TXT) at apex
 # - DMARC (TXT) at _dmarc.<domain>
-# - DKIM (TXT) at <selector>._domainkey.<domain> (optional, requires you to provide value)
+# - DKIM (TXT) at <selector>._domainkey.<domain> (optional, requires dkim_public_key)
 #
 # Notes:
 # - DKIM value is Mailcow-generated; provide it as a variable once you extract it from Mailcow UI.
@@ -36,6 +49,16 @@
     # dkim_public_key: "v=DKIM1; k=rsa; p=MIIBIjANBgkqh..."
 
   tasks:
+    - name: Enforce cutover safety guard
+      ansible.builtin.fail:
+        msg: |
+          SAFETY GUARD: mail-dns-records.yml will NOT write MX/SPF/DMARC/DKIM records unless
+          mail_dns_cutover_ready=true is explicitly passed.
+          This prevents breaking production mail on abyss.hell.sk during lab provisioning.
+          When kaiju is ready to receive mail, re-run with:
+            -e mail_dns_cutover_ready=true
+      when: not (mail_dns_cutover_ready | default(false) | bool)
+
     - name: Fail if Cloudflare token is not set
       ansible.builtin.fail:
         msg: "cloudflare_api_token must be set in group_vars/all.yml"

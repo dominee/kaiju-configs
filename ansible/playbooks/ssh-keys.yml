@@ -19,6 +19,7 @@
         patterns: "*.pub"
         file_type: file
       delegate_to: localhost
+      become: false
       run_once: true
       register: dominee_key_files
 
@@ -26,6 +27,7 @@
       ansible.builtin.fail:
         msg: "No public keys found in {{ ssh_keys_dir }} for dominee."
       delegate_to: localhost
+      become: false
       run_once: true
       when: dominee_key_files.matched | int == 0
 

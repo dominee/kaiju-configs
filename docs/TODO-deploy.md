@@ -162,7 +162,7 @@ Mark items with `[x]` as you complete them.
   ```
 
 ### 1.4 SSH key deployment
-- [ ] Ensure public keys are in `ansible/files/ssh-keys/dominee/`
+- [x] Ensure public keys are in `ansible/files/ssh-keys/dominee/`
 - [ ] Run ssh-keys playbook:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/ssh-keys.yml

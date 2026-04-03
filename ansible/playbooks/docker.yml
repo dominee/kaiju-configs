@@ -78,6 +78,27 @@
         - docker
         - containerd
 
+    # docker0 is created when Docker starts; nftables cannot reference it before that (harden.yml
+    # deploys a rule set without Docker forward rules until docker0 exists).
+    - name: Wait for docker0 bridge (created by Docker)
+      ansible.builtin.wait_for:
+        path: /sys/class/net/docker0
+        state: present
+        timeout: 120
+
+    - name: Redeploy nftables with Docker bridge forward rules
+      ansible.builtin.template:
+        src: templates/nftables.conf.j2
+        dest: /etc/nftables.conf
+        mode: "0644"
+      vars:
+        nftables_enable_docker_forward: true
+
+    - name: Reload nftables after Docker bridge rules
+      ansible.builtin.systemd:
+        name: nftables
+        state: reloaded
+
     - name: Create Traefik install directory
       ansible.builtin.file:
         path: "{{ traefik_install_path }}"

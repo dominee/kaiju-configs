@@ -2,9 +2,14 @@
 # Harden kaiju: SSH, nftables, fail2ban, unattended-upgrades, sysctl.
 # Run: ansible-playbook -i ../inventory/hosts.yml harden.yml
 # Requires: become, group_vars/all.yml (or .example defaults).
+#
+# nftables: the template omits Docker bridge forward rules until docker0 exists (Docker is
+# installed in docker.yml). After Docker is up, docker.yml redeploys /etc/nftables.conf with
+# those rules. Re-run harden after Docker is installed to auto-detect docker0 via facts, or run docker.yml.
 - name: Harden kaiju server
   hosts: kaiju
   become: true
+  gather_facts: true
   vars:
     sshd_permit_root_login: "no"
     sshd_password_authentication: "no"

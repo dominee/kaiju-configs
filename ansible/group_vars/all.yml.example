@@ -24,6 +24,12 @@ mail_ip: "10.101.10.74"
 web_hostname: "kaiju.{{ domain }}"
 mail_hostname: "mail.{{ domain }}"
 
+# --- nftables (harden.yml / docker.yml) ---
+# Interface name used in forward chain for Docker↔host traffic (default: default route or bond0).
+# nftables_forward_interface: bond0
+# Force Docker forward rules on/off (default: auto — true if ansible_facts show docker0).
+# nftables_enable_docker_forward: false
+
 # --- Cloudflare ---
 # DNS managed by Cloudflare. API token for ACME (Let's Encrypt via DNS challenge).
 cloudflare_api_token: "your-cloudflare-api-token"

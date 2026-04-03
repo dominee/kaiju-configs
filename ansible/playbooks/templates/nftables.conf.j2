@@ -1,4 +1,9 @@
 # Kaiju firewall — allow SSH, SMTP, HTTPS, IMAPS. Managed by Ansible.
+# Docker bridge rules reference iif/oif "docker0"; nft rejects reload if that interface
+# does not exist yet. They are included only when nftables_enable_docker_forward is true,
+# or when ansible_facts show docker0 (e.g. harden re-run after Docker is installed).
+{% set _wan = nftables_forward_interface | default((ansible_facts['default_ipv4'] | default({}))['interface'] | default('bond0')) %}
+{% set _docker_fwd = (nftables_enable_docker_forward | bool) if (nftables_enable_docker_forward is defined) else ('docker0' in (ansible_facts['interfaces'] | default([]))) %}
 flush ruleset
 
 table inet filter {
@@ -33,10 +38,12 @@ table inet filter {
 
   chain forward {
     type filter hook forward priority filter; policy drop;
-    # Docker will add its own rules; accept established
     ct state established,related accept
-    iif "docker0" oifname "{{ ansible_default_ipv4.interface }}" accept
-    iifname "{{ ansible_default_ipv4.interface }}" oif "docker0" ct state established,related accept
+{% if _docker_fwd %}
+    # Host↔Docker bridge (requires docker0 to exist — see docker.yml after Docker install)
+    iif "docker0" oifname "{{ _wan }}" accept
+    iifname "{{ _wan }}" oif "docker0" ct state established,related accept
+{% endif %}
     drop
   }
 

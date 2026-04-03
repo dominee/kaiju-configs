@@ -12,6 +12,14 @@
 # Notes:
 # - This playbook manages only records within the Cloudflare zone matching `domain`.
 # - Mail hostnames that must support SMTP/IMAPS are created as DNS-only (proxied: false).
+#
+# *** PRODUCTION SAFETY GUARD ***
+# This playbook can overwrite existing A records (via PUT) for names like:
+# - mail.<domain>, autodiscover.<domain>, autoconfig.<domain>, webmail.<domain>
+# If those names currently point at other production hosts, running this during lab WILL cause outages.
+#
+# The flag `dns_core_apply_ready: true` MUST be explicitly set (via -e or group_vars) to allow any writes.
+# Without it the playbook hard-fails before making Cloudflare API changes.
 
 - name: Manage Cloudflare DNS (core hostnames)
   hosts: localhost
@@ -25,6 +33,16 @@
     cf_webmail_proxied: "{{ cf_webmail_proxied | default(false) | bool }}"
 
   tasks:
+    - name: Enforce core DNS safety guard
+      ansible.builtin.fail:
+        msg: |
+          SAFETY GUARD: dns-cloudflare.yml will NOT write A records unless dns_core_apply_ready=true
+          is explicitly passed. This prevents accidental overwrites in a shared production zone.
+
+          When you intentionally want to apply these A record changes, re-run with:
+            -e dns_core_apply_ready=true
+      when: not (dns_core_apply_ready | default(false) | bool)
+
     - name: Fail if Cloudflare token is not set
       ansible.builtin.fail:
         msg: "cloudflare_api_token must be set in group_vars/all.yml"

@@ -59,6 +59,21 @@
     status_code: [200]
   when:
     - cf_existing is not none
+    - cloudflare_allow_updates | default(false) | bool
+    - (cf_existing.content | string) != (rec.content | string)
+      or (cf_existing.ttl | int) != (rec.ttl | default(1) | int)
+      or ((cf_existing.proxied | default(false) | bool) != (rec.proxied | default(false) | bool))
+
+- name: Fail if drift detected but updates are disabled (safety guard)
+  ansible.builtin.fail:
+    msg: >-
+      DNS drift detected for {{ rec.type }} {{ rec.name }} but updates are disabled.
+      Refusing to overwrite existing Cloudflare record in a shared production zone.
+      If this is intentional, re-run with -e cloudflare_allow_updates=true (and ensure you also set
+      dns_core_apply_ready=true in dns-cloudflare.yml).
+  when:
+    - cf_existing is not none
+    - not (cloudflare_allow_updates | default(false) | bool)
     - (cf_existing.content | string) != (rec.content | string)
       or (cf_existing.ttl | int) != (rec.ttl | default(1) | int)
       or ((cf_existing.proxied | default(false) | bool) != (rec.proxied | default(false) | bool))

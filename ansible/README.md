@@ -55,6 +55,14 @@ Notes:
    cp group_vars/all.yml.example group_vars/all.yml
    ```
 
+   Keep your real vars in `ansible/group_vars/all.yml`. The committed symlink
+   `inventory/group_vars/all.yml` → `../../group_vars/all.yml` exists so Ansible’s
+   **inventory-adjacent** `group_vars` resolution still finds that file. Without it, running
+   `ansible-playbook` from the **repository root** (e.g. `-i ansible/inventory/hosts.yml`) would
+   not load `ansible/group_vars/all.yml`, and plays would see undefined `domain`,
+   `cloudflare_api_token`, etc. Running from `ansible/` with `-i inventory/hosts.yml` can mask
+   that, because Ansible also discovers `group_vars` relative to the current working directory.
+
 2. Edit `inventory/hosts.yml` with the server IP/hostname (`kaiju.hell.sk` or IP) and SSH user/key.
 3. Edit `group_vars/all.yml` with domain, Cloudflare API token, and any mailcow settings.
 4. **Cloudflare Origin Cert:** For web services behind Cloudflare shield, create an Origin Certificate in Cloudflare (SSL/TLS > Origin Server > Create Certificate) and place `origin.pem` and `origin-key.pem` in `/opt/traefik/certs/` on the server. Or set `cloudflare_origin_cert_enabled: false` to use ACME for all services.

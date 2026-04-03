@@ -4,6 +4,18 @@
 #   ansible-playbook -i ../inventory/hosts.yml playbooks/preflight.yml
 #
 # This playbook fails fast when required variables or on-host prerequisites are missing.
+#
+# The first play uses hosts: localhost — that always means “the Ansible controller” (the host
+# where you run ansible-playbook), whether that is your laptop or a dedicated jump host.
+# Declare localhost under `all` in inventory/hosts.yml (see hosts.yml.example) so it receives
+# group_vars like any other inventory host.
+#
+# group_vars discovery: Ansible loads `group_vars/all.yml` from the directory that contains
+# the inventory file (`inventory/group_vars/`). This repo keeps the real file at
+# `ansible/group_vars/all.yml` and provides `inventory/group_vars/all.yml` as a symlink so
+# variables load whether you run from `ansible/` or from the repository root with
+# `-i ansible/inventory/hosts.yml`. Without that symlink, running from the repo root yields an
+# almost empty variable set (only inventory host vars like ansible_connection).
 
 - name: Preflight (controller-side variable checks)
   hosts: localhost

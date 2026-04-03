@@ -2,10 +2,17 @@
 # Usage: ansible-playbook -i inventory/hosts.yml playbooks/<name>.yml
 # Single server, two IPs on bond0: web (kaiju.hell.sk), mail (mail.hell.sk).
 # Set Cloudflare A: kaiju.hell.sk → web_ip, mail.hell.sk (and autodiscover, autoconfig, webmail) → mail_ip.
+#
+# localhost is declared explicitly under `all` so that group_vars/all.yml is loaded
+# for plays that use `hosts: localhost` (e.g. preflight controller-side checks, DNS playbooks).
+# Without this, the implicit localhost never joins any inventory group and never receives group_vars.
 
 all:
+  hosts:
+    localhost:
+      ansible_connection: local
   children:
-    kaiju:
+    hell:
       hosts:
         kaiju:
           ansible_host: kaiju.hell.sk   # or web_ip; DNS points to web IP

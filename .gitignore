@@ -7,4 +7,5 @@ README-INTERNAL.md
 # Ansible secrets (use .example templates)
 ansible/inventory/hosts.yml
 ansible/group_vars/all.yml
+ansible/inventory/group_vars/all.yml
 ansible.cfg

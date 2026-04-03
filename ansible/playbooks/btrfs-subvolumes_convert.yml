@@ -37,8 +37,9 @@
   ansible.builtin.command: btrfs subvolume create {{ btrfs_root_mount }}/{{ subvol.name }}
   when:
     - not already_subvol_mount
-    - "'{{ subvol.name }}' not in existing_subvols.stdout"
+    - subvol.name not in existing_subvols.stdout
 
+# Units may not exist yet if this playbook runs before docker.yml — missing units are OK.
 - name: Stop services using {{ subvol.mountpoint }}
   ansible.builtin.systemd:
     name: "{{ item }}"
@@ -47,6 +48,7 @@
   when:
     - not already_subvol_mount
     - subvol.stop_services | length > 0
+  failed_when: false
 
 - name: Ensure mountpoint directory {{ subvol.mountpoint }} exists
   ansible.builtin.file:
@@ -93,7 +95,6 @@
     fstype: btrfs
     opts: "subvol={{ subvol.name }},defaults"
     state: mounted
-    fstab: yes
   when: not already_subvol_mount
 
 - name: Start services using {{ subvol.mountpoint }}
@@ -104,4 +105,5 @@
   when:
     - not already_subvol_mount
     - subvol.stop_services | length > 0
+  failed_when: false
 

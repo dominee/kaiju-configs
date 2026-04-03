@@ -4,6 +4,8 @@
 #
 # WARNING:
 # - This assumes / is on BTRFS and /vault is already a BTRFS subvolume (see docs/kaiju-os-state.md).
+# - stop_services entries (e.g. docker) are stopped/started only if the systemd units exist;
+#   running this playbook before docker.yml is OK — missing units are skipped without failing.
 # - It creates subvolumes under the same BTRFS filesystem and mounts them at:
 #   - /var/lib/docker  -> @var_lib_docker
 #   - /var/www/html    -> @var_www_html
@@ -41,13 +43,26 @@
       register: root_mount
       changed_when: false
 
+    # findmnt SOURCE may include a subvolume suffix, e.g. /dev/mapper/foo[/@rootfs] — blkid and
+    # mount need the block device only (/dev/mapper/foo).
     - name: Parse BTRFS device and mountpoint
       ansible.builtin.set_fact:
-        btrfs_device: "{{ root_mount.stdout.split()[0] }}"
+        btrfs_source: "{{ root_mount.stdout.split()[0] }}"
         btrfs_mountpoint: "{{ root_mount.stdout.split()[1] }}"
 
+    - name: Normalize block device path for blkid/mount
+      ansible.builtin.set_fact:
+        btrfs_device: "{{ btrfs_source.split('[')[0] }}"
+
     - name: Get BTRFS filesystem UUID
-      ansible.builtin.command: blkid -s UUID -o value {{ btrfs_device }}
+      ansible.builtin.command:
+        argv:
+          - blkid
+          - -s
+          - UUID
+          - -o
+          - value
+          - "{{ btrfs_device }}"
       register: btrfs_uuid_cmd
       changed_when: false
       failed_when: btrfs_uuid_cmd.rc != 0

@@ -138,31 +138,27 @@ Mark items with `[x]` as you complete them.
 - [x] Confirm: all assertions pass, no failures
 
 ### 1.2 OS hardening
-- [ ] Run harden playbook:
+- [x] Run harden playbook:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/harden.yml
   ```
-- [ ] Verify SSH still accessible after firewall rules applied
-- [ ] Verify `nftables` is running: `sudo nft list ruleset`
-- [ ] Verify `fail2ban` is running: `sudo fail2ban-client status`
+- [x] Verify SSH still accessible after firewall rules applied
+- [x] Verify `nftables` is running: `sudo nft list ruleset`
+- [x] Verify `fail2ban` is running: `sudo fail2ban-client status`
 
 ### 1.3 BTRFS subvolumes (before Docker)
-- [ ] Review current BTRFS layout in `docs/kaiju-os-state.md`
-- [ ] Run BTRFS subvolume conversion:
+- [x] Review current BTRFS layout in `docs/kaiju-os-state.md`
+- [x] Run BTRFS subvolume conversion:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/btrfs-subvolumes.yml
   ```
-- [ ] Verify subvolumes created:
+- [x] Verify subvolumes created:
   ```bash
   sudo btrfs subvolume list /
   ```
-- [ ] Verify fstab entries:
+- [x] Verify fstab entries:
   ```bash
   grep btrfs /etc/fstab
-  ```
-- [ ] Verify mounts survived service restarts (all services back up):
-  ```bash
-  sudo systemctl status docker
   ```
 
 ### 1.4 SSH key deployment

@@ -137,7 +137,15 @@ Mark items with `[x]` as you complete them.
   ```
 - [x] Confirm: all assertions pass, no failures
 
-### 1.2 OS hardening
+### 1.2 SSH key deployment
+- [x] Ensure public keys are in `ansible/files/ssh-keys/dominee/`
+- [x] Run ssh-keys playbook:
+  ```bash
+  ansible-playbook -i inventory/hosts.yml playbooks/ssh-keys.yml
+  ```
+- [x] Test key login from all expected devices
+
+### 1.3 OS hardening
 - [x] Run harden playbook:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/harden.yml
@@ -146,7 +154,7 @@ Mark items with `[x]` as you complete them.
 - [x] Verify `nftables` is running: `sudo nft list ruleset`
 - [x] Verify `fail2ban` is running: `sudo fail2ban-client status`
 
-### 1.3 BTRFS subvolumes (before Docker)
+### 1.4 BTRFS subvolumes (before Docker)
 - [x] Review current BTRFS layout in `docs/kaiju-os-state.md`
 - [x] Run BTRFS subvolume conversion:
   ```bash
@@ -160,14 +168,6 @@ Mark items with `[x]` as you complete them.
   ```bash
   grep btrfs /etc/fstab
   ```
-
-### 1.4 SSH key deployment
-- [x] Ensure public keys are in `ansible/files/ssh-keys/dominee/`
-- [ ] Run ssh-keys playbook:
-  ```bash
-  ansible-playbook -i inventory/hosts.yml playbooks/ssh-keys.yml
-  ```
-- [ ] Test key login from all expected devices
 
 ### 1.5 Docker, Traefik, and static web
 - [ ] Set DNS (lab): point `kaiju.hell.sk` → `10.101.10.73` in Cloudflare (or `/etc/hosts` for local testing)

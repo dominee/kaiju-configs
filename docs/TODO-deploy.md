@@ -131,11 +131,11 @@ Mark items with `[x]` as you complete them.
 ## Phase 1 — Lab provisioning
 
 ### 1.1 Preflight validation
-- [ ] Run preflight to check all required vars and host prerequisites:
+- [x] Run preflight to check all required vars and host prerequisites:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/preflight.yml
   ```
-- [ ] Confirm: all assertions pass, no failures
+- [x] Confirm: all assertions pass, no failures
 
 ### 1.2 OS hardening
 - [ ] Run harden playbook:

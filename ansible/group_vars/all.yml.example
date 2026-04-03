@@ -31,6 +31,8 @@ cloudflare_api_token: "your-cloudflare-api-token"
 # Set to true after placing origin.pem and origin-key.pem in /opt/traefik/certs/
 cloudflare_origin_cert_enabled: false
 # Cloudflare Origin Cert: place cert/key pairs in /opt/traefik/certs/ before deploying.
+# Use /certs/... paths below — that is the path *inside* the Traefik container (compose bind-mount);
+# preflight maps them to /opt/traefik/certs/... on the host. You may instead use full host paths.
 # Origin Certs are per Cloudflare zone. Add one entry per zone (e.g. hell.sk AND goldendawns-clan.cz).
 # If a static_web_vhosts FQDN is outside the primary domain, it needs its own cert pair here
 # or must rely on ACME instead (set cloudflare_origin_cert_enabled: false and use certresolver).

@@ -127,23 +127,36 @@
       when: item.rc != 0
       loop: "{{ cmd_check.results }}"
 
+    # origin_cert_pairs use container paths (/certs/...) in Traefik config; stat() needs host paths.
     - name: Check Cloudflare Origin cert files when enabled
       ansible.builtin.stat:
-        path: "{{ item.cert_file }}"
+        path: >-
+          {{
+            (traefik_install_path ~ item.cert_file)
+            if (item.cert_file is match('^/certs/'))
+            else item.cert_file
+          }}
       loop: "{{ origin_cert_pairs | default([{'cert_file': traefik_install_path + '/certs/origin.pem', 'key_file': traefik_install_path + '/certs/origin-key.pem'}]) }}"
       register: origin_cert_file_stats
       when: cloudflare_origin_cert_enabled | default(false) | bool
 
     - name: Check Cloudflare Origin key files when enabled
       ansible.builtin.stat:
-        path: "{{ item.key_file }}"
+        path: >-
+          {{
+            (traefik_install_path ~ item.key_file)
+            if (item.key_file is match('^/certs/'))
+            else item.key_file
+          }}
       loop: "{{ origin_cert_pairs | default([{'cert_file': traefik_install_path + '/certs/origin.pem', 'key_file': traefik_install_path + '/certs/origin-key.pem'}]) }}"
       register: origin_key_file_stats
       when: cloudflare_origin_cert_enabled | default(false) | bool
 
     - name: Fail if any Origin cert file is missing
       ansible.builtin.fail:
-        msg: "cloudflare_origin_cert_enabled is true but cert file missing: {{ item.item.cert_file }}"
+        msg: >-
+          cloudflare_origin_cert_enabled is true but cert file missing on host.
+          Declared (Traefik): {{ item.item.cert_file }} — checked path: {{ item.invocation.module_args.path }}
       when:
         - cloudflare_origin_cert_enabled | default(false) | bool
         - item.stat is defined
@@ -152,7 +165,9 @@
 
     - name: Fail if any Origin key file is missing
       ansible.builtin.fail:
-        msg: "cloudflare_origin_cert_enabled is true but key file missing: {{ item.item.key_file }}"
+        msg: >-
+          cloudflare_origin_cert_enabled is true but key file missing on host.
+          Declared (Traefik): {{ item.item.key_file }} — checked path: {{ item.invocation.module_args.path }}
       when:
         - cloudflare_origin_cert_enabled | default(false) | bool
         - item.stat is defined

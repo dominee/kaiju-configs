@@ -44,7 +44,8 @@ services:
       - traefik.http.routers.mailcow-webmail.tls=true
       - traefik.http.routers.mailcow-webmail.tls.certresolver=cloudflare
       - traefik.http.routers.mailcow-webmail.service=mailcow-svc
-      - traefik.http.services.mailcow-svc.loadbalancer.server.port=8080
+      # nginx-mailcow listens on HTTP_PORT inside the container; bind/publish is controlled by mailcow.conf
+      - traefik.http.services.mailcow-svc.loadbalancer.server.port={{ mailcow_traefik_upstream_port | default(mailcow_http_port | default('18080')) }}
       - traefik.docker.network=proxy
     networks:
       - mailcow-network

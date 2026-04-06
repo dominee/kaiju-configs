@@ -172,3 +172,87 @@
       changed_when: "'Creating' in mailcow_up.stdout or 'Starting' in mailcow_up.stdout or 'Pulling' in mailcow_up.stdout"
       args:
         executable: /bin/bash
+
+    - name: Probe mailcow nginx from Traefik (diagnose 502/connection issues)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for p in 18080 18443 8080 80 8443 443; do
+          echo "== Probing mailcow-nginx-mailcow-1:${p} from traefik =="
+          docker exec traefik sh -lc "wget -qSO- --timeout=3 --tries=1 http://mailcow-nginx-mailcow-1:${p}/ 2>&1 | head -n 5" || true
+        done
+        echo "== Probing localhost from inside mailcow-nginx-mailcow-1 =="
+        for p in 18080 18443 8080 80 8443 443; do
+          echo "--- 127.0.0.1:${p} ---"
+          docker exec mailcow-nginx-mailcow-1 sh -lc "wget -qSO- --timeout=3 --tries=1 http://127.0.0.1:${p}/ 2>&1 | head -n 5" || true
+        done
+      register: mailcow_traefik_probe
+      changed_when: false
+      failed_when: false
+      args:
+        executable: /bin/bash
+
+    - name: Show Traefik->Mailcow probe output
+      ansible.builtin.debug:
+        var: mailcow_traefik_probe.stdout_lines
+
+    - name: Collect mailcow nginx container state (for 502 diagnosis)
+      ansible.builtin.command:
+        argv:
+          - docker
+          - ps
+          - -a
+          - --filter
+          - name=mailcow-nginx
+          - --format
+          - "{% raw %}table {{.Names}}\t{{.Status}}\t{{.Ports}}{% endraw %}"
+      register: mailcow_nginx_ps
+      changed_when: false
+      failed_when: false
+
+    - name: Collect mailcow nginx container runtime state (for 502 diagnosis)
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - mailcow-nginx-mailcow-1
+          - --format
+          - "{% raw %}{{json .State}}{% endraw %}"
+      register: mailcow_nginx_inspect_state
+      changed_when: false
+      failed_when: false
+
+    - name: Collect mailcow nginx published ports (for 502 diagnosis)
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - mailcow-nginx-mailcow-1
+          - --format
+          - "{% raw %}{{json .NetworkSettings.Ports}}{% endraw %}"
+      register: mailcow_nginx_inspect_ports
+      changed_when: false
+      failed_when: false
+
+    - name: Show mailcow nginx container state
+      ansible.builtin.debug:
+        msg:
+          - "== docker ps (mailcow nginx) =="
+          - "{{ mailcow_nginx_ps.stdout }}"
+          - "== docker inspect (mailcow-nginx-mailcow-1) State =="
+          - "{{ mailcow_nginx_inspect_state.stdout }}"
+          - "== docker inspect (mailcow-nginx-mailcow-1) NetworkSettings.Ports =="
+          - "{{ mailcow_nginx_inspect_ports.stdout }}"
+
+    - name: Collect mailcow nginx container logs (last 120 lines)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        docker logs --tail 120 mailcow-nginx-mailcow-1 2>&1 || true
+      register: mailcow_nginx_logs
+      changed_when: false
+      failed_when: false
+      args:
+        executable: /bin/bash
+
+    - name: Show mailcow nginx logs
+      ansible.builtin.debug:
+        var: mailcow_nginx_logs.stdout_lines

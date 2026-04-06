@@ -156,6 +156,15 @@
         name: docker
         state: restarted
 
+    - name: Restart static-web and traefik after firewall change
+      ansible.builtin.shell: |
+        docker restart static-web traefik
+      register: docker_restart_out
+      changed_when: docker_restart_out.rc == 0
+      failed_when: false
+      args:
+        executable: /bin/bash
+
     - name: Create Traefik install directory
       ansible.builtin.file:
         path: "{{ traefik_install_path }}"

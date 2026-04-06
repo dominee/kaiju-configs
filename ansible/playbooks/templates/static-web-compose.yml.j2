@@ -13,6 +13,7 @@ services:
 {% for vhost in static_web_vhosts %}
       - traefik.http.routers.static-web-{{ vhost.fqdn | replace('.', '-') }}.rule=Host(`{{ vhost.fqdn }}`)
       - traefik.http.routers.static-web-{{ vhost.fqdn | replace('.', '-') }}.entrypoints=websecure
+      - traefik.http.routers.static-web-{{ vhost.fqdn | replace('.', '-') }}.tls=true
 {% if not (cloudflare_origin_cert_enabled | default(false)) %}
       - traefik.http.routers.static-web-{{ vhost.fqdn | replace('.', '-') }}.tls.certresolver=cloudflare
 {% endif %}

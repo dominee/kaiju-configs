@@ -177,9 +177,9 @@ Mark items with `[x]` as you complete them.
   ```
 - [x] Verify Docker running: `docker ps`
 - [x] Verify Traefik running: `docker ps | grep traefik`
-- [ ] Verify static-web running: `docker ps | grep static-web`
-- [ ] Test: `curl -k https://kaiju.hell.sk/` (or via `/etc/hosts`)
-- [ ] Upload at least one placeholder page to `/var/www/html/hell.sk/public/index.html`
+- [x] Verify static-web running: `docker ps | grep static-web`
+- [x] Test: `curl -k https://kaiju.hell.sk/` (or via `/etc/hosts`)
+- [x] Upload at least one placeholder page to `/var/www/html/hell.sk/public/index.html`
 - [ ] Test static site for each vhost in `static_web_vhosts`
 
 ### 1.6 Mailcow deployment

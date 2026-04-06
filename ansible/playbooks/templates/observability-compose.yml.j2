@@ -26,6 +26,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.grafana.rule=Host(`{{ grafana_fqdn }}`)
       - traefik.http.routers.grafana.entrypoints=websecure
+      - traefik.http.routers.grafana.tls=true
 {% if not (cloudflare_origin_cert_enabled | default(false)) %}
       - traefik.http.routers.grafana.tls.certresolver=cloudflare
 {% endif %}
@@ -76,6 +77,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.dozzle.rule=Host(`{{ dozzle_fqdn }}`)
       - traefik.http.routers.dozzle.entrypoints=websecure
+      - traefik.http.routers.dozzle.tls=true
 {% if not (cloudflare_origin_cert_enabled | default(false)) %}
       - traefik.http.routers.dozzle.tls.certresolver=cloudflare
 {% endif %}

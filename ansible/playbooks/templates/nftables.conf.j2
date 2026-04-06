@@ -43,6 +43,13 @@ table inet filter {
     # Host↔Docker bridge (requires docker0 to exist — see docker.yml after Docker install)
     iif "docker0" oifname "{{ _wan }}" accept
     iifname "{{ _wan }}" oif "docker0" ct state established,related accept
+
+    # User-defined Docker bridge networks (e.g. `proxy` → br-<id>)
+    # Without these, forward policy drop breaks container↔container and WAN↔container traffic,
+    # causing Traefik 504s even though routers match.
+    iifname "br-*" oifname "br-*" accept
+    iifname "br-*" oifname "{{ _wan }}" accept
+    iifname "{{ _wan }}" oifname "br-*" ct state established,related accept
 {% endif %}
     drop
   }

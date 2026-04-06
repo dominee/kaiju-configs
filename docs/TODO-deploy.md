@@ -180,10 +180,10 @@ Mark items with `[x]` as you complete them.
 - [x] Verify static-web running: `docker ps | grep static-web`
 - [x] Test: `curl -k https://kaiju.hell.sk/` (or via `/etc/hosts`)
 - [x] Upload at least one placeholder page to `/var/www/html/hell.sk/public/index.html`
-- [ ] Test static site for each vhost in `static_web_vhosts`
+- [x] Test static site for each vhost in `static_web_vhosts`
 
 ### 1.6 Mailcow deployment
-- [ ] Ensure `/vault` is mounted and writable (LUKS decrypted)
+- [x] Ensure `/vault` is mounted and writable (LUKS decrypted)
 - [ ] Run mailcow playbook:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/mailcow.yml

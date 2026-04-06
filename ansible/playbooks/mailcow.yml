@@ -8,6 +8,7 @@
   vars:
     mailcow_repo: https://github.com/mailcow/mailcow-dockerized.git
     mailcow_branch: master
+    mailcow_git_update_effective: "{{ mailcow_git_update | default(true) | bool }}"
   tasks:
     - name: Ensure /vault exists (LUKS data mount)
       ansible.builtin.file:
@@ -22,13 +23,49 @@
         state: present
         update_cache: true
 
+    - name: Detect existing mailcow git checkout
+      ansible.builtin.stat:
+        path: "{{ mailcow_install_path }}/.git"
+      register: mailcow_gitdir_stat
+
+    - name: Check for local modifications in mailcow checkout (if present)
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - "{{ mailcow_install_path }}"
+          - status
+          - --porcelain
+      register: mailcow_git_status
+      changed_when: false
+      failed_when: false
+      when: mailcow_gitdir_stat.stat.exists
+
+    - name: Decide whether to update mailcow checkout
+      ansible.builtin.set_fact:
+        mailcow_git_update_ok: >-
+          {{
+            (mailcow_git_update_effective | bool)
+            and (not (mailcow_git_status.stdout | default('') | length > 0))
+          }}
+
+    - name: Warn when mailcow checkout is dirty (skipping git update)
+      ansible.builtin.debug:
+        msg:
+          - "mailcow checkout at {{ mailcow_install_path }} has local modifications; skipping git update to avoid overwriting changes."
+          - "If you want Ansible to forcibly reset to upstream, clean/stash changes, or run with: -e mailcow_git_update=false"
+      when:
+        - mailcow_gitdir_stat.stat.exists
+        - (mailcow_git_status.stdout | default('') | length > 0)
+        - mailcow_git_update_effective | bool
+
     - name: Clone or update mailcow-dockerized
       ansible.builtin.git:
         repo: "{{ mailcow_repo }}"
         dest: "{{ mailcow_install_path }}"
         version: "{{ mailcow_branch }}"
         force: false
-        update: true
+        update: "{{ mailcow_git_update_ok | default(mailcow_git_update_effective) | bool }}"
       register: mailcow_git
 
     - name: Check if mailcow.conf already exists
@@ -50,6 +87,25 @@
         dest: "{{ mailcow_install_path }}/mailcow.conf"
         mode: "0600"
       when: not mailcow_conf_stat.stat.exists
+
+    # Existing installs keep their own mailcow.conf (secrets). We only enforce the reverse-proxy
+    # port/bind settings so mailcow-nginx does not try to bind 0.0.0.0:80/443 (Traefik owns them).
+    - name: Enforce reverse-proxy port/bind settings in existing mailcow.conf
+      ansible.builtin.lineinfile:
+        path: "{{ mailcow_install_path }}/mailcow.conf"
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+        create: false
+        backrefs: false
+      loop:
+        # Reverse proxy mode: publish mailcow nginx only on localhost high ports (Traefik owns 80/443).
+        - { key: "HTTP_BIND", value: "{{ mailcow_http_bind | default('127.0.0.1') }}" }
+        - { key: "HTTP_PORT", value: "{{ mailcow_http_port | default('18080') }}" }
+        - { key: "HTTPS_BIND", value: "{{ mailcow_https_bind | default('127.0.0.1') }}" }
+        - { key: "HTTPS_PORT", value: "{{ mailcow_https_port | default('18443') }}" }
+        - { key: "HTTP_REDIRECT", value: "n" }
+        - { key: "SKIP_LETS_ENCRYPT", value: "y" }
+      when: mailcow_conf_stat.stat.exists
 
     - name: Persist a backup copy of mailcow.conf on first install (secrets)
       ansible.builtin.copy:
@@ -111,7 +167,7 @@
 
     - name: Start mailcow stack
       ansible.builtin.shell: |
-        cd {{ mailcow_install_path }} && docker compose up -d
+        cd {{ mailcow_install_path }} && docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
       register: mailcow_up
       changed_when: "'Creating' in mailcow_up.stdout or 'Starting' in mailcow_up.stdout or 'Pulling' in mailcow_up.stdout"
       args:

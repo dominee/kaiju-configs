@@ -18,16 +18,20 @@ services:
       - ACME_FILE_PATH=/traefik/acme.json
 
   nginx-mailcow:
-    expose:
-      - "8080"
+    # Reverse proxy mode: nginx-mailcow listens on 8080 internally for HTTP.
+    # Mailcow's default compose publishes 80/443 on the host; Traefik already owns 80/443.
+    # Ports are controlled by mailcow.conf (HTTP_BIND/HTTP_PORT/HTTPS_BIND/HTTPS_PORT). Do not
+    # override ports here to avoid compose merge surprises.
     labels:
       - traefik.enable=true
       - traefik.http.routers.mailcow-autodiscover.entrypoints=websecure
       - traefik.http.routers.mailcow-autodiscover.rule=Host(`autodiscover.{{ domain }}`) && Path(`/autodiscover/autodiscover.xml`)
+      - traefik.http.routers.mailcow-autodiscover.tls=true
       - traefik.http.routers.mailcow-autodiscover.tls.certresolver=cloudflare
       - traefik.http.routers.mailcow-autodiscover.service=mailcow-svc
       - traefik.http.routers.mailcow-autoconfig.entrypoints=websecure
       - traefik.http.routers.mailcow-autoconfig.rule=Host(`autoconfig.{{ domain }}`) && Path(`/mail/config-v1.1.xml`)
+      - traefik.http.routers.mailcow-autoconfig.tls=true
       - traefik.http.routers.mailcow-autoconfig.tls.certresolver=cloudflare
       - traefik.http.routers.mailcow-autoconfig.service=mailcow-svc
       - traefik.http.routers.mailcow.entrypoints=websecure
@@ -37,6 +41,7 @@ services:
       - traefik.http.routers.mailcow.service=mailcow-svc
       - traefik.http.routers.mailcow-webmail.entrypoints=websecure
       - traefik.http.routers.mailcow-webmail.rule=Host(`{{ mailcow_webmail_fqdn }}`)
+      - traefik.http.routers.mailcow-webmail.tls=true
       - traefik.http.routers.mailcow-webmail.tls.certresolver=cloudflare
       - traefik.http.routers.mailcow-webmail.service=mailcow-svc
       - traefik.http.services.mailcow-svc.loadbalancer.server.port=8080

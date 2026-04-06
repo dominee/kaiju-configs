@@ -170,7 +170,7 @@ Mark items with `[x]` as you complete them.
   ```
 
 ### 1.5 Docker, Traefik, and static web
-- [ ] Set DNS (lab): point `kaiju.hell.sk` → `10.101.10.73` in Cloudflare (or `/etc/hosts` for local testing)
+- [x] Set DNS (lab): point `kaiju.hell.sk` → `10.101.10.73` in Cloudflare (or `/etc/hosts` for local testing)
 - [ ] Run docker playbook:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/docker.yml

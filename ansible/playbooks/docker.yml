@@ -6,12 +6,13 @@
   hosts: kaiju
   become: true
   vars:
-    docker_apt_release: "{{ ansible_distribution_release }}"
+    docker_apt_release: "{{ ansible_facts['distribution_release'] }}"
+    docker_install_prefer_ce_effective: "{{ docker_install_prefer_ce | default(true) | bool }}"
     traefik_install_path: /opt/traefik
     portainer_data_path: /opt/portainer/data
     static_web_install_path: /opt/static-web
   tasks:
-    - name: Remove conflicting packages
+    - name: Remove conflicting packages (only when installing Docker CE)
       ansible.builtin.apt:
         name:
           - docker.io
@@ -22,6 +23,7 @@
           - runc
         state: absent
       failed_when: false
+      when: docker_install_prefer_ce_effective | bool
 
     - name: Install Docker dependencies
       ansible.builtin.apt:
@@ -38,21 +40,53 @@
         state: directory
         mode: "0755"
 
-    - name: Add Docker GPG key
+    - name: Add Docker GPG key (Docker CE)
       ansible.builtin.get_url:
         url: https://download.docker.com/linux/debian/gpg
         dest: /etc/apt/keyrings/docker.asc
         mode: "0644"
         force: true
+      when: docker_install_prefer_ce_effective | bool
 
-    - name: Add Docker apt repository
+    - name: Add Docker apt repository (Docker CE)
       ansible.builtin.apt_repository:
-        repo: "deb [arch={{ ansible_architecture }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ docker_apt_release }} stable"
+        repo: "deb [arch={{ ansible_facts['architecture'] }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ docker_apt_release }} stable"
         filename: docker
         state: present
         update_cache: true
+      when: docker_install_prefer_ce_effective | bool
 
-    - name: Install Docker CE and Compose plugin
+    # apt-cache show docker-ce can succeed even when no build exists for this Debian
+    # release/arch; apt-get -s install is a reliable installability check.
+    - name: Simulate Docker CE install (check packages are resolvable)
+      ansible.builtin.command:
+        argv:
+          - apt-get
+          - install
+          - -s
+          - -y
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      register: docker_ce_simulate
+      changed_when: false
+      failed_when: false
+      when: docker_install_prefer_ce_effective | bool
+
+    - name: Decide Docker install method
+      ansible.builtin.set_fact:
+        # When prefer_ce is false, Jinja short-circuits and does not read docker_ce_simulate.
+        docker_use_ce: >-
+          {{
+            (docker_install_prefer_ce_effective | bool)
+            and ((docker_ce_simulate.rc | default(-1)) == 0)
+          }}
+
+    - name: Install Docker (Docker CE)
       ansible.builtin.apt:
         name:
           - docker-ce
@@ -62,6 +96,23 @@
           - docker-compose-plugin
         state: present
         update_cache: true
+      when: docker_use_ce | bool
+
+    - name: Install Docker (Debian packages fallback)
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose
+        state: present
+        update_cache: true
+      when: not (docker_use_ce | default(false) | bool)
+
+    - name: Install docker compose plugin (Debian fallback, optional)
+      ansible.builtin.apt:
+        name: docker-compose-plugin
+        state: present
+      when: not (docker_use_ce | default(false) | bool)
+      failed_when: false
 
     - name: Add deploy user to docker group
       ansible.builtin.user:
@@ -98,6 +149,13 @@
       ansible.builtin.systemd:
         name: nftables
         state: reloaded
+
+    # nftables.conf uses `flush ruleset`, which wipes Docker’s iptables/nft chains.
+    # Restart Docker to recreate the DOCKER/DOCKER-USER chains before creating networks/containers.
+    - name: Restart Docker after nftables reload (recreate iptables/nft chains)
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
 
     - name: Create Traefik install directory
       ansible.builtin.file:

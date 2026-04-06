@@ -137,3 +137,11 @@
       ansible.builtin.systemd:
         name: nftables
         state: reloaded
+
+    # If Docker is installed/running, nftables reload (with flush ruleset) removes Docker’s chains.
+    # Restart Docker so it re-creates the DOCKER/DOCKER-USER chains and networking continues to work.
+    - name: Restart Docker after nftables reload (if present)
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
+      failed_when: false

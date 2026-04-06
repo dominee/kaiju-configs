@@ -17,7 +17,8 @@ Configuration, Ansible playbooks, and OS context for my Dell PowerEdge R430 serv
   - `inventory/hosts.yml.example` — example inventory (copy to `hosts.yml` and fill in).
   - `group_vars/all.yml.example` — example global variables (domain, Cloudflare, mailcow, etc.).
   - `playbooks/harden.yml` — SSH hardening, nftables firewall, fail2ban, unattended-upgrades, sysctl.
-  - `playbooks/docker.yml` — Docker CE, Portainer, Traefik, and static nginx site.
+  - `playbooks/docker.yml` — Docker (CE when available; falls back to Debian `docker.io`), Traefik, and static nginx site.
+  - `playbooks/observability.yml` — Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, and `ctop`.
   - `playbooks/mailcow.yml` — mailcow-dockerized deployment behind Traefik (with Traefik v3 + certdumper integration).
   - `playbooks/templates/…` — Jinja2 templates for nftables, Traefik, static web, mailcow + Traefik override.
 - `.cursor/agents/` — Cursor subagents:

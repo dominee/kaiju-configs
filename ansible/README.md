@@ -91,7 +91,7 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 ## Playbooks
 
 - **harden.yml** — SSH hardening, nftables firewall, fail2ban, unattended-upgrades, sysctl.
-- **docker.yml** — Docker CE, Portainer, Traefik (dual cert: Cloudflare Origin for web, ACME for mail), multi-vhost static nginx from `/var/www/html`.
+- **docker.yml** — Docker (CE when available; falls back to Debian `docker.io`), Traefik (dual cert: Cloudflare Origin for web, ACME for mail), multi-vhost static nginx from `/var/www/html`.
 - **mailcow.yml** — mailcow-dockerized behind Traefik (mail, autodiscover, autoconfig, webmail/SOGo); requires Docker and Traefik. Restrict webmail by country via Cloudflare WAF if desired.
 - **ip-migration.yml** — add production web/mail IPs to `bond0` alongside lab IPs, then (optionally) remove lab IPs after DNS cutover. Does **not** change persistent network config files; intended for controlled migration.
 - **observability.yml** — Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, and `ctop` for logs, metrics, and dashboards. Grafana at `{{ grafana_fqdn }}`, Dozzle at `{{ dozzle_fqdn }}` behind Traefik.

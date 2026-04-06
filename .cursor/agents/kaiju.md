@@ -32,7 +32,10 @@ All other services are internal or reachable only via Traefik with appropriate r
 
 ## Architecture
 
-- **Docker** — managed via **Portainer** (web UI)
+- **Docker** — managed via CLI plus lightweight UIs:
+  - **Dozzle** for logs (behind Traefik + Basic Auth)
+  - **Grafana/Prometheus** for metrics and dashboards (behind Traefik + Basic Auth)
+  - **ctop** for interactive container status (CLI)
 - **Traefik** — reverse proxy for all Docker-hosted HTTP/HTTPS services; dual cert strategy:
   - **Web (behind Cloudflare):** Cloudflare Origin Cert (default TLS)
   - **Mail (web UI, autoconfig, autodiscover):** Let's Encrypt via Cloudflare DNS challenge; certdumper copies to mailcow for postfix/dovecot

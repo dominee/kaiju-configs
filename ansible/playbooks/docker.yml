@@ -1,15 +1,14 @@
 ---
-# Install Docker CE, Portainer, and Traefik on kaiju.
+# Install Docker and Traefik on kaiju.
 # Run: ansible-playbook -i ../inventory/hosts.yml docker.yml
 # Requires: group_vars/all.yml with domain, acme_email, cloudflare_api_token.
-- name: Install Docker CE and deploy Portainer + Traefik
+- name: Install Docker and deploy Traefik
   hosts: kaiju
   become: true
   vars:
     docker_apt_release: "{{ ansible_facts['distribution_release'] }}"
     docker_install_prefer_ce_effective: "{{ docker_install_prefer_ce | default(true) | bool }}"
     traefik_install_path: /opt/traefik
-    portainer_data_path: /opt/portainer/data
     static_web_install_path: /opt/static-web
   tasks:
     - name: Remove conflicting packages (only when installing Docker CE)
@@ -195,38 +194,6 @@
         cd {{ traefik_install_path }} && docker compose up -d
       register: traefik_up
       changed_when: "'Creating' in traefik_up.stdout or 'Starting' in traefik_up.stdout"
-      args:
-        executable: /bin/bash
-
-    - name: Create Portainer data directory
-      ansible.builtin.file:
-        path: "{{ portainer_data_path }}"
-        state: directory
-        mode: "0755"
-
-    - name: Check if Portainer container exists
-      ansible.builtin.shell: docker ps -a -q -f name=^portainer$
-      register: portainer_exists
-      changed_when: false
-      failed_when: false
-
-    - name: Deploy Portainer CE
-      ansible.builtin.shell: |
-        docker run -d --name portainer --restart unless-stopped \
-          -v /var/run/docker.sock:/var/run/docker.sock \
-          -v {{ portainer_data_path }}:/data \
-          -p 9000:9000 -p 9443:9443 \
-          portainer/portainer-ce:latest
-      when: portainer_exists.stdout | trim | length == 0
-      changed_when: true
-      args:
-        executable: /bin/bash
-
-    - name: Start Portainer if stopped
-      ansible.builtin.shell: docker start portainer
-      when: portainer_exists.stdout | trim | length > 0
-      register: portainer_start
-      changed_when: portainer_start.rc == 0
       args:
         executable: /bin/bash
 

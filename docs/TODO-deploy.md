@@ -171,12 +171,12 @@ Mark items with `[x]` as you complete them.
 
 ### 1.5 Docker, Traefik, and static web
 - [x] Set DNS (lab): point `kaiju.hell.sk` → `10.101.10.73` in Cloudflare (or `/etc/hosts` for local testing)
-- [ ] Run docker playbook:
+- [x] Run docker playbook:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/docker.yml
   ```
-- [ ] Verify Docker running: `docker ps`
-- [ ] Verify Traefik running: `docker ps | grep traefik`
+- [x] Verify Docker running: `docker ps`
+- [x] Verify Traefik running: `docker ps | grep traefik`
 - [ ] Verify static-web running: `docker ps | grep static-web`
 - [ ] Test: `curl -k https://kaiju.hell.sk/` (or via `/etc/hosts`)
 - [ ] Upload at least one placeholder page to `/var/www/html/hell.sk/public/index.html`

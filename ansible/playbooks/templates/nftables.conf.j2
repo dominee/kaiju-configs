@@ -23,7 +23,8 @@ table inet filter {
     tcp dport 25 accept
     tcp dport 465 accept
     tcp dport 587 accept
-    # HTTPS
+    # HTTP/HTTPS
+    tcp dport 80 accept
     tcp dport 443 accept
     # IMAPS
     tcp dport 993 accept
@@ -42,14 +43,16 @@ table inet filter {
 {% if _docker_fwd %}
     # Host↔Docker bridge (requires docker0 to exist — see docker.yml after Docker install)
     iif "docker0" oifname "{{ _wan }}" accept
-    iifname "{{ _wan }}" oif "docker0" ct state established,related accept
+    # Allow DNATed inbound connections from {{ _wan }} to containers (new + established)
+    iifname "{{ _wan }}" oif "docker0" accept
 
     # User-defined Docker bridge networks (e.g. `proxy` → br-<id>)
     # Without these, forward policy drop breaks container↔container and WAN↔container traffic,
     # causing Traefik 504s even though routers match.
     iifname "br-*" oifname "br-*" accept
     iifname "br-*" oifname "{{ _wan }}" accept
-    iifname "{{ _wan }}" oifname "br-*" ct state established,related accept
+    # Allow DNATed inbound connections from {{ _wan }} to containers (new + established)
+    iifname "{{ _wan }}" oifname "br-*" accept
 {% endif %}
     drop
   }

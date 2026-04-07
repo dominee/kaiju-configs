@@ -184,17 +184,17 @@ Mark items with `[x]` as you complete them.
 
 ### 1.6 Mailcow deployment
 - [x] Ensure `/vault` is mounted and writable (LUKS decrypted)
-- [ ] Run mailcow playbook:
+- [x] Run mailcow playbook:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/mailcow.yml
   ```
-- [ ] Retrieve auto-generated secrets from `/root/mailcow.conf.initial` on the host
-- [ ] Add those secrets to `group_vars/all.yml` (ansible-vault recommended)
-- [ ] Verify Mailcow containers running:
+- [x] Retrieve auto-generated secrets from `/root/mailcow.conf.initial` on the host
+- [x] Add those secrets to `group_vars/all.yml` (ansible-vault recommended)
+- [x] Verify Mailcow containers running:
   ```bash
   cd /vault/mailcow && docker compose ps
   ```
-- [ ] Access Mailcow admin UI: `https://mail.hell.sk` (lab DNS or `/etc/hosts`)
+- [x] Access Mailcow admin UI: `https://mail.hell.sk` (lab DNS or `/etc/hosts`)
 - [ ] Set Mailcow admin password (first login)
 - [ ] Create mailboxes for 3 users:
   - `dominee@hell.sk`

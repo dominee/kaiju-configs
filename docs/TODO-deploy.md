@@ -195,11 +195,8 @@ Mark items with `[x]` as you complete them.
   cd /vault/mailcow && docker compose ps
   ```
 - [x] Access Mailcow admin UI: `https://mail.hell.sk` (lab DNS or `/etc/hosts`)
-- [ ] Set Mailcow admin password (first login)
-- [ ] Create mailboxes for 3 users:
-  - `dominee@hell.sk`
-  - `djiabliq@hell.sk`
-  - `celo@hell.sk`
+- [x] Set Mailcow admin password (first login)
+- [x] Create mailboxes
 - [ ] Verify IMAPS listening on `mail_ip`:
   ```bash
   ss -tln | grep 993

@@ -165,13 +165,234 @@
         dest: "{{ mailcow_install_path }}/docker-compose.override.yml"
         mode: "0644"
 
-    - name: Start mailcow stack
-      ansible.builtin.shell: |
-        cd {{ mailcow_install_path }} && docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
-      register: mailcow_up
-      changed_when: "'Creating' in mailcow_up.stdout or 'Starting' in mailcow_up.stdout or 'Pulling' in mailcow_up.stdout"
-      args:
-        executable: /bin/bash
+    - name: Start mailcow stack (with Docker NAT-chain recovery)
+      block:
+        - name: Start mailcow stack
+          ansible.builtin.shell: |
+            cd {{ mailcow_install_path }} && docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+          register: mailcow_up
+          changed_when: "'Creating' in mailcow_up.stderr or 'Starting' in mailcow_up.stderr or 'Pulling' in mailcow_up.stderr"
+          args:
+            executable: /bin/bash
+      rescue:
+        - name: Restart Docker to recreate iptables/nft NAT chains
+          ansible.builtin.service:
+            name: docker
+            state: restarted
+
+        - name: Wait for Docker engine socket
+          ansible.builtin.wait_for:
+            path: /var/run/docker.sock
+            state: present
+            timeout: 60
+
+        - name: Retry start mailcow stack after Docker restart
+          ansible.builtin.shell: |
+            cd {{ mailcow_install_path }} && docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
+          register: mailcow_up_retry
+          changed_when: "'Creating' in mailcow_up_retry.stderr or 'Starting' in mailcow_up_retry.stderr or 'Pulling' in mailcow_up_retry.stderr"
+          args:
+            executable: /bin/bash
+
+    - name: Check current applied mailcow admin password hash marker
+      ansible.builtin.stat:
+        path: "{{ mailcow_install_path }}/.ansible_admin_pass.sha256"
+      register: mailcow_admin_hash_marker_stat
+      no_log: true
+
+    - name: Read current applied mailcow admin password hash marker (if present)
+      ansible.builtin.slurp:
+        path: "{{ mailcow_install_path }}/.ansible_admin_pass.sha256"
+      register: mailcow_admin_hash_marker_slurp
+      when: mailcow_admin_hash_marker_stat.stat.exists
+      no_log: true
+
+    - name: Compute desired mailcow admin password hash
+      ansible.builtin.set_fact:
+        mailcow_admin_pass_sha256: "{{ (mailcow_admin_pass | string) | hash('sha256') }}"
+        mailcow_admin_hash_marker_current: >-
+          {{
+            (mailcow_admin_hash_marker_slurp.content | b64decode | trim)
+            if (mailcow_admin_hash_marker_stat.stat.exists | default(false))
+            else ''
+          }}
+      when: mailcow_admin_pass is defined
+      no_log: true
+
+    - name: Set mailcow admin password from Ansible (idempotent)
+      block:
+        - name: Assert mailcow_admin_user is supported
+          ansible.builtin.assert:
+            that:
+              - (mailcow_admin_user | default('admin')) == 'admin'
+            fail_msg: "This playbook currently supports only resetting the built-in Mailcow admin user 'admin'."
+
+        - name: Wait for mysql-mailcow and dovecot-mailcow to be running
+          ansible.builtin.command:
+            argv:
+              - docker
+              - inspect
+              - -f
+              - "{{'{{'}}.State.Running{{'}}'}}"
+              - "{{ item }}"
+          loop:
+            - mailcow-mysql-mailcow-1
+            - mailcow-dovecot-mailcow-1
+          register: mailcow_core_running
+          changed_when: false
+          failed_when: false
+          retries: 30
+          delay: 2
+          until: mailcow_core_running.stdout | trim == 'true'
+
+        - name: Install Mailcow admin reset helper (sources mailcow.conf)
+          ansible.builtin.copy:
+            dest: "{{ mailcow_install_path }}/.ansible-set-mailcow-admin-pass.sh"
+            owner: root
+            group: root
+            mode: "0700"
+            content: |
+              #!/usr/bin/env bash
+              set -euo pipefail
+              cd "{{ mailcow_install_path }}"
+              # Prefer explicit env vars (Ansible/vault). Fall back to mailcow.conf (existing installs).
+              if [[ -z "${DBUSER:-}" || -z "${DBPASS:-}" || -z "${DBNAME:-}" ]]; then
+                # shellcheck disable=SC1091
+                source ./mailcow.conf
+              fi
+              if [[ -z "${DBUSER:-}" || -z "${DBPASS:-}" || -z "${DBNAME:-}" ]]; then
+                echo "Missing DBUSER/DBPASS/DBNAME in mailcow.conf" >&2
+                exit 2
+              fi
+              if [[ -z "${ADMIN_PASS:-}" ]]; then
+                echo "Missing ADMIN_PASS env" >&2
+                exit 2
+              fi
+              # Hash the desired password using dovecot's supported scheme.
+              ADMIN_PASS_HASH="$(
+                docker compose -f docker-compose.yml -f docker-compose.override.yml exec -T \
+                  -e "ADMIN_PASS=${ADMIN_PASS}" \
+                  dovecot-mailcow sh -lc 'doveadm pw -s SSHA256 -p "$ADMIN_PASS"' \
+                  | tr -d '\r\n'
+              )"
+              if [[ -z "${ADMIN_PASS_HASH:-}" ]]; then
+                echo "Failed to compute password hash" >&2
+                exit 3
+              fi
+              # Apply reset (mirrors mailcow helper semantics, but uses the provided password).
+              # NOTE: pass DB password via env, not CLI args (avoids leaking into Ansible output/process list).
+              docker compose -f docker-compose.yml -f docker-compose.override.yml exec -T \
+                -e "DBUSER=${DBUSER}" \
+                -e "DBNAME=${DBNAME}" \
+                -e "ADMIN_PASS_HASH=${ADMIN_PASS_HASH}" \
+                -e "MYSQL_PWD=${DBPASS}" \
+                mysql-mailcow sh -lc 'mysql -u"$DBUSER" "$DBNAME" -e "DELETE FROM admin WHERE username='\''admin'\'';
+                  DELETE FROM domain_admins WHERE username='\''admin'\'';
+                  INSERT INTO admin (username, password, superadmin, active) VALUES ('\''admin'\'', '\''$ADMIN_PASS_HASH'\'', 1, 1);
+                  DELETE FROM tfa WHERE username='\''admin'\'';"'
+          no_log: true
+
+        - name: Reset Mailcow admin password via helper (idempotent marker controlled)
+          ansible.builtin.command:
+            argv:
+              - /bin/bash
+              - "{{ mailcow_install_path }}/.ansible-set-mailcow-admin-pass.sh"
+          environment:
+            ADMIN_PASS: "{{ mailcow_admin_pass }}"
+            DBUSER: "{{ mailcow_dbuser | default('mailcow') }}"
+            DBNAME: "{{ mailcow_dbname | default('mailcow') }}"
+            DBPASS: "{{ mailcow_dbpass | default('') }}"
+          register: mailcow_set_admin_pass_helper
+          changed_when: true
+          retries: 30
+          delay: 3
+          until: mailcow_set_admin_pass_helper.rc == 0
+          # The helper avoids passing secrets on the command line; safe to show stderr if it fails.
+          no_log: false
+      rescue:
+        - name: Show mailcow compose status (safe)
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - -f
+              - docker-compose.yml
+              - -f
+              - docker-compose.override.yml
+              - ps
+          args:
+            chdir: "{{ mailcow_install_path }}"
+          register: mailcow_compose_ps_safe
+          changed_when: false
+          failed_when: false
+
+        - name: Show php-fpm-mailcow logs (safe, last 120 lines)
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - -f
+              - docker-compose.yml
+              - -f
+              - docker-compose.override.yml
+              - logs
+              - --tail
+              - "120"
+              - php-fpm-mailcow
+          args:
+            chdir: "{{ mailcow_install_path }}"
+          register: mailcow_php_fpm_logs_safe
+          changed_when: false
+          failed_when: false
+
+        - name: Show mysql-mailcow logs (safe, last 200 lines)
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - -f
+              - docker-compose.yml
+              - -f
+              - docker-compose.override.yml
+              - logs
+              - --tail
+              - "200"
+              - mysql-mailcow
+          args:
+            chdir: "{{ mailcow_install_path }}"
+          register: mailcow_mysql_logs_safe
+          changed_when: false
+          failed_when: false
+
+        - name: Fail with guidance (admin password set did not succeed yet)
+          ansible.builtin.fail:
+            msg:
+              - "Failed to set Mailcow admin password via host-side helper script."
+              - "This usually means the stack is not fully initialised yet, or the DB is not reachable from inside the mysql-mailcow container."
+              - "Re-run the playbook in a minute, or inspect the outputs below."
+              - "== docker compose ps =="
+              - "{{ mailcow_compose_ps_safe.stdout | default('') }}"
+              - "== php-fpm-mailcow logs (tail) =="
+              - "{{ mailcow_php_fpm_logs_safe.stdout | default('') }}"
+              - "== mysql-mailcow logs (tail) =="
+              - "{{ mailcow_mysql_logs_safe.stdout | default('') }}"
+      when:
+        - mailcow_admin_pass is defined
+        - (mailcow_admin_pass | string | length) > 0
+        - mailcow_admin_hash_marker_current != mailcow_admin_pass_sha256
+
+    - name: Persist applied mailcow admin password hash marker
+      ansible.builtin.copy:
+        dest: "{{ mailcow_install_path }}/.ansible_admin_pass.sha256"
+        content: "{{ mailcow_admin_pass_sha256 }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      when:
+        - mailcow_admin_pass is defined
+        - (mailcow_admin_pass | string | length) > 0
+        - mailcow_admin_hash_marker_current != mailcow_admin_pass_sha256
+      no_log: true
 
     - name: Probe mailcow nginx from Traefik (diagnose 502/connection issues)
       ansible.builtin.shell: |

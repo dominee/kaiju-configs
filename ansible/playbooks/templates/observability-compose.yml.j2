@@ -32,7 +32,8 @@ services:
 {% endif %}
 {% if observability_basic_auth_enabled | default(true) | bool %}
       - traefik.http.routers.grafana.middlewares=observability-auth@docker
-      - traefik.http.middlewares.observability-auth.basicauth.users={{ (observability_basic_auth_users | default([])) | join(',') }}
+      # Docker Compose expands $VARS inside labels; bcrypt hashes contain '$' and must be escaped as '$$'.
+      - traefik.http.middlewares.observability-auth.basicauth.users={{ (observability_basic_auth_users | default([])) | map('regex_replace', '\\s+', '') | map('regex_replace', '\\$', '$$') | join(',') }}
 {% endif %}
       - traefik.http.services.grafana.loadbalancer.server.port=3000
       - traefik.docker.network=proxy
@@ -83,7 +84,8 @@ services:
 {% endif %}
 {% if observability_basic_auth_enabled | default(true) | bool %}
       - traefik.http.routers.dozzle.middlewares=observability-auth@docker
-      - traefik.http.middlewares.observability-auth.basicauth.users={{ (observability_basic_auth_users | default([])) | join(',') }}
+      # Docker Compose expands $VARS inside labels; bcrypt hashes contain '$' and must be escaped as '$$'.
+      - traefik.http.middlewares.observability-auth.basicauth.users={{ (observability_basic_auth_users | default([])) | map('regex_replace', '\\s+', '') | map('regex_replace', '\\$', '$$') | join(',') }}
 {% endif %}
       - traefik.http.services.dozzle.loadbalancer.server.port=8080
       - traefik.docker.network=proxy

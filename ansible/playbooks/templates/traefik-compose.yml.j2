@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     command:
       - "--api.dashboard=true"
+      - "--api.insecure=true"
       - "--metrics.prometheus=true"
       - "--metrics.prometheus.addEntryPointsLabels=true"
       - "--metrics.prometheus.addServicesLabels=true"

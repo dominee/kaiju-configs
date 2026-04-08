@@ -197,14 +197,24 @@
         src: templates/traefik-compose.yml.j2
         dest: "{{ traefik_install_path }}/docker-compose.yml"
         mode: "0644"
+      register: traefik_compose_deployed
 
     - name: Start Traefik stack
       ansible.builtin.shell: |
         cd {{ traefik_install_path }} && docker compose up -d
       register: traefik_up
-      changed_when: "'Creating' in traefik_up.stdout or 'Starting' in traefik_up.stdout"
+      changed_when: "'Creating' in traefik_up.stderr or 'Starting' in traefik_up.stderr or 'Recreating' in traefik_up.stderr"
       args:
         executable: /bin/bash
+
+    - name: Force-recreate Traefik when compose config changed
+      ansible.builtin.shell: |
+        cd {{ traefik_install_path }} && docker compose up -d --force-recreate traefik
+      register: traefik_recreate
+      changed_when: true
+      args:
+        executable: /bin/bash
+      when: traefik_compose_deployed.changed
 
     - name: Create static web directory
       ansible.builtin.file:

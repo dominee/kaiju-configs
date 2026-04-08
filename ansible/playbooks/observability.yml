@@ -8,6 +8,7 @@
   become: true
   vars:
     observability_install_path: /opt/observability
+    ctop_version: "0.7.7"
   tasks:
     - name: Fail if Basic Auth is enabled but no users are configured
       ansible.builtin.fail:
@@ -21,11 +22,28 @@
         msg: "grafana_admin_password must be set in group_vars/all.yml (use ansible-vault)."
       when: grafana_admin_password is not defined or grafana_admin_password | length == 0
 
-    - name: Install ctop (container top) CLI
-      ansible.builtin.apt:
-        name: ctop
-        state: present
-        update_cache: true
+    - name: Check if ctop is installed
+      ansible.builtin.command:
+        argv: [ctop, -v]
+      register: ctop_version_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install/upgrade ctop (container top) CLI from GitHub release
+      ansible.builtin.get_url:
+        url: "https://github.com/bcicen/ctop/releases/download/v{{ ctop_version }}/ctop-{{ ctop_version }}-linux-{{ ctop_arch }}"
+        dest: /usr/local/bin/ctop
+        mode: "0755"
+        owner: root
+        group: root
+      vars:
+        ctop_arch: >-
+          {{
+            'amd64' if ansible_facts.architecture in ['x86_64', 'amd64']
+            else 'arm64' if ansible_facts.architecture in ['aarch64', 'arm64']
+            else ansible_facts.architecture
+          }}
+      when: ctop_version_check.rc != 0 or (ctop_version_check.stdout | default('')) is not search('^ctop version ' ~ ctop_version ~ '$')
 
     - name: Create observability install directory
       ansible.builtin.file:
@@ -52,4 +70,47 @@
       changed_when: "'Creating' in observability_up.stdout or 'Starting' in observability_up.stdout or 'Pulling' in observability_up.stdout"
       args:
         executable: /bin/bash
+
+    - name: Show observability compose status (post-deploy)
+      ansible.builtin.command:
+        argv: [docker, compose, ps]
+      args:
+        chdir: "{{ observability_install_path }}"
+      register: observability_compose_ps
+      changed_when: false
+
+    - name: Assert Grafana and Dozzle containers are running
+      ansible.builtin.assert:
+        that:
+          - (observability_compose_ps.stdout | default('')) is search('grafana')
+          - (observability_compose_ps.stdout | default('')) is search('dozzle')
+          - (observability_compose_ps.stdout | default('')) is search('Up')
+        fail_msg: >-
+          Observability stack started, but containers do not look healthy/running.
+          Output:
+          {{ observability_compose_ps.stdout | default('') }}
+
+    - name: Query Traefik routers via local API (runs on kaiju)
+      ansible.builtin.command:
+        argv:
+          - curl
+          - -fsS
+          - http://127.0.0.1:8080/api/http/routers
+      register: traefik_routers_json
+      changed_when: false
+      failed_when: false
+
+    - name: Assert Traefik has routers for Grafana and Dozzle
+      ansible.builtin.assert:
+        that:
+          - traefik_routers_json.rc == 0
+          - (traefik_routers_json.stdout | default('')) is search('grafana@docker')
+          - (traefik_routers_json.stdout | default('')) is search('dozzle@docker')
+        fail_msg: >-
+          Traefik does not list expected routers for Grafana/Dozzle.
+          curl exit code: {{ traefik_routers_json.rc | default('n/a') }}
+          This typically means the API is not reachable (--api.insecure=true missing),
+          containers are not on the proxy network, or traefik.enable=true label is absent.
+          Routers JSON (truncated):
+          {{ (traefik_routers_json.stdout | default('') )[:3000] }}
 

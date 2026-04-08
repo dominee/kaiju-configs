@@ -197,22 +197,22 @@ Mark items with `[x]` as you complete them.
 - [x] Access Mailcow admin UI: `https://mail.hell.sk` (lab DNS or `/etc/hosts`)
 - [x] Set Mailcow admin password (first login)
 - [x] Create mailboxes
-- [ ] Verify IMAPS listening on `mail_ip`:
+- [x] Verify IMAPS listening on `mail_ip`:
   ```bash
-  ss -tln | grep 993
+  sudo ss -tln | grep 993
   ```
-- [ ] Verify SMTP ports listening:
+- [x] Verify SMTP ports listening:
   ```bash
-  ss -tln | grep -E '25|465|587'
+  sudo ss -tln | grep -E '25|465|587'
   ```
 
 ### 1.7 Observability stack
-- [ ] Confirm `observability_basic_auth_users` and `grafana_admin_password` are set
-- [ ] Run observability playbook:
+- [x] Confirm `observability_basic_auth_users` and `grafana_admin_password` are set
+- [x] Run observability playbook:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/observability.yml
   ```
-- [ ] Verify containers running: `docker ps | grep -E 'prometheus|grafana|dozzle|cadvisor|node-exporter'`
+- [x] Verify containers running: `docker ps | grep -E 'prometheus|grafana|dozzle|cadvisor|node-exporter'`
 - [ ] Access Grafana: `https://metrics.hell.sk` (lab DNS or `/etc/hosts`)
   - Login with `dominee` / `grafana_admin_password`
   - Add Prometheus data source: `http://prometheus:9090`

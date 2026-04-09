@@ -11,7 +11,8 @@
     healthcheck_mail_host: "{{ mailcow_fqdn }}"
     healthcheck_grafana_host: "{{ grafana_fqdn | default('metrics.' + domain) }}"
     healthcheck_dozzle_host: "{{ dozzle_fqdn | default('logs.' + domain) }}"
-    healthcheck_validate_certs: "{{ healthcheck_validate_certs | default(false) | bool }}"
+    # If you want to override cert validation, set `healthcheck_validate_certs` in inventory/group_vars.
+    healthcheck_validate_certs_effective: "{{ (healthcheck_validate_certs | default(false)) | bool }}"
     # Optional: set to validate Basic Auth protected endpoints (Grafana/Dozzle)
     # healthcheck_basic_auth_user: "dominee"
     # healthcheck_basic_auth_password: "..."
@@ -82,7 +83,7 @@
         url: "https://{{ healthcheck_web_host }}/"
         method: GET
         return_content: false
-        validate_certs: "{{ healthcheck_validate_certs }}"
+        validate_certs: "{{ healthcheck_validate_certs_effective }}"
       register: web_check
       failed_when: web_check.status | default(0) < 200 or web_check.status | default(0) >= 400
 
@@ -91,7 +92,7 @@
         url: "https://{{ healthcheck_mail_host }}/"
         method: GET
         return_content: false
-        validate_certs: "{{ healthcheck_validate_certs }}"
+        validate_certs: "{{ healthcheck_validate_certs_effective }}"
       register: mailcow_check
       failed_when: mailcow_check.status | default(0) < 200 or mailcow_check.status | default(0) >= 400
 
@@ -100,7 +101,7 @@
         url: "https://{{ healthcheck_grafana_host }}/login"
         method: GET
         return_content: false
-        validate_certs: "{{ healthcheck_validate_certs }}"
+        validate_certs: "{{ healthcheck_validate_certs_effective }}"
         url_username: "{{ healthcheck_basic_auth_user | default(omit) }}"
         url_password: "{{ healthcheck_basic_auth_password | default(omit) }}"
       register: grafana_check
@@ -113,7 +114,7 @@
         url: "https://{{ healthcheck_dozzle_host }}/"
         method: GET
         return_content: false
-        validate_certs: "{{ healthcheck_validate_certs }}"
+        validate_certs: "{{ healthcheck_validate_certs_effective }}"
         url_username: "{{ healthcheck_basic_auth_user | default(omit) }}"
         url_password: "{{ healthcheck_basic_auth_password | default(omit) }}"
       register: dozzle_check

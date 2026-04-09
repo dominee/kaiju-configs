@@ -225,11 +225,11 @@ Mark items with `[x]` as you complete them.
 ## Phase 2 — Lab validation
 
 ### 2.1 Basic healthcheck
-- [ ] Run basic healthcheck:
+- [x] Run basic healthcheck:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-basic.yml
   ```
-- [ ] All critical services pass
+- [x] All critical services pass
 
 ### 2.2 Full healthcheck
 - [ ] Run full healthcheck:

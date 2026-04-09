@@ -154,6 +154,42 @@
         executable: /bin/bash
       changed_when: true
 
+    # Dovecot in dovecot-mailcow expects ssl_dh at /etc/ssl/mail/dhparams.pem (host: data/assets/ssl/dhparams.pem).
+    # If missing, supervisord restarts Dovecot in a tight loop (exit 89).
+    - name: Generate mailcow dhparams.pem for Dovecot (idempotent; first run can take a few minutes)
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - dhparam
+          - -out
+          - "{{ mailcow_install_path }}/data/assets/ssl/dhparams.pem"
+          - "{{ mailcow_dhparam_bits | default(2048) | string }}"
+        creates: "{{ mailcow_install_path }}/data/assets/ssl/dhparams.pem"
+      register: mailcow_dhparam_gen
+
+    - name: Stat mailcow dhparams.pem (after generate or existing file)
+      ansible.builtin.stat:
+        path: "{{ mailcow_install_path }}/data/assets/ssl/dhparams.pem"
+      register: mailcow_dhparams_stat
+
+    - name: Ensure dhparams.pem permissions
+      ansible.builtin.file:
+        path: "{{ mailcow_install_path }}/data/assets/ssl/dhparams.pem"
+        state: file
+        owner: root
+        group: root
+        mode: "0644"
+      when: mailcow_dhparams_stat.stat.exists
+
+    - name: Restart dovecot-mailcow after creating dhparams.pem
+      ansible.builtin.shell: |
+        cd {{ mailcow_install_path }} && docker compose -f docker-compose.yml -f docker-compose.override.yml restart dovecot-mailcow
+      when: mailcow_dhparam_gen.changed | default(false)
+      args:
+        executable: /bin/bash
+      register: mailcow_dovecot_restart
+      changed_when: mailcow_dovecot_restart.rc == 0
+
     - name: Ensure Docker network proxy exists (for Traefik <-> mailcow)
       ansible.builtin.shell: docker network create proxy 2>/dev/null || true
       changed_when: false

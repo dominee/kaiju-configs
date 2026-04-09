@@ -62,6 +62,8 @@ cf_webmail_proxied: false
 
 # --- Mailcow ---
 mailcow_install_path: /vault/mailcow
+# Optional: bits for openssl dhparam at data/assets/ssl/dhparams.pem (Dovecot ssl_dh). Default 2048; 4096 is slower.
+# mailcow_dhparam_bits: 2048
 # SOGo web interface hostname; geoip restriction can be applied via Cloudflare WAF.
 mailcow_webmail_fqdn: "webmail.{{ domain }}"
 # Optional: list of country codes allowed for webmail (e.g. ["SK", "CZ"]). Enforce via Cloudflare WAF or Traefik plugin.

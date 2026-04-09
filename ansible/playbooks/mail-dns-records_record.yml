@@ -1,16 +1,14 @@
 ---
 # Ensure a single Cloudflare mail DNS record exists and matches desired state.
 # Expects:
-# - cf_api_base, cf_zone_id, cloudflare_api_token
+# - cf_api_base, cf_zone_id, cf_cloudflare_request_headers (set by tasks/cloudflare-api-token.yml)
 # - rec: {type,name,content,ttl,proxied[,priority]}
 
 - name: Lookup existing DNS record {{ rec.type }} {{ rec.name }}
   ansible.builtin.uri:
     url: "{{ cf_api_base }}/zones/{{ cf_zone_id }}/dns_records?type={{ rec.type }}&name={{ rec.name }}"
     method: GET
-    headers:
-      Authorization: "Bearer {{ cloudflare_api_token }}"
-      Content-Type: "application/json"
+    headers: "{{ cf_cloudflare_request_headers }}"
     return_content: true
   register: cf_lookup
 
@@ -27,9 +25,7 @@
   ansible.builtin.uri:
     url: "{{ cf_api_base }}/zones/{{ cf_zone_id }}/dns_records"
     method: POST
-    headers:
-      Authorization: "Bearer {{ cloudflare_api_token }}"
-      Content-Type: "application/json"
+    headers: "{{ cf_cloudflare_request_headers }}"
     body_format: json
     body: >-
       {{
@@ -50,9 +46,7 @@
   ansible.builtin.uri:
     url: "{{ cf_api_base }}/zones/{{ cf_zone_id }}/dns_records/{{ cf_existing.id }}"
     method: PUT
-    headers:
-      Authorization: "Bearer {{ cloudflare_api_token }}"
-      Content-Type: "application/json"
+    headers: "{{ cf_cloudflare_request_headers }}"
     body_format: json
     body: >-
       {{

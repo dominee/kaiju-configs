@@ -1,7 +1,8 @@
 ---
 # Install Docker and Traefik on kaiju.
 # Run: ansible-playbook -i ../inventory/hosts.yml docker.yml
-# Requires: group_vars/all.yml with domain, acme_email, cloudflare_api_token.
+# Requires: group_vars/all.yml with domain, acme_email, and a Cloudflare token for ACME
+# (cloudflare_acme_dns_token preferred; cloudflare_api_token legacy fallback).
 - name: Install Docker and deploy Traefik
   hosts: kaiju
   become: true

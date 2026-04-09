@@ -47,10 +47,17 @@ Mark items with `[x]` as you complete them.
 
 ### 0.3 Secrets and credentials
 
-#### Cloudflare API token
-- [x] Obtain Cloudflare API token (Zone.DNS Read+Write, Zone.Zone Read):
-  - Cloudflare dashboard → My Profile → API Tokens → Create Token
-  - Scope: `Zone.DNS — Edit`, `Zone.Zone — Read` for `hell.sk`
+#### Cloudflare — scoped API tokens (recommended)
+
+Use **API Tokens** (Bearer), not the Global API Key. Create two minimal tokens in **My Profile → API Tokens → Create Token** (or custom permissions):
+
+| Variable | Used by | Suggested permissions |
+|----------|---------|------------------------|
+| `cloudflare_acme_dns_token` | Traefik ACME DNS-01 (`docker.yml` → `CF_DNS_API_TOKEN`) | **Zone → DNS → Edit** on each zone Traefik must issue certs for (e.g. `hell.sk`; add other zones if you use ACME for them). |
+| `cloudflare_dns_api_token` | `dns-validate.yml`, `dns-cloudflare.yml`, `mail-dns-records.yml` | **Zone → DNS → Edit**, **Zone → Zone → Read** on `hell.sk` (Edit covers read for API purposes). |
+
+- [x] Create token **A** (ACME): vault as `cloudflare_acme_dns_token`.
+- [x] Create token **B** (DNS automation): vault as `cloudflare_dns_api_token`.
 
 #### ansible-vault setup
 - [x] Decide on secret management strategy: **ansible-vault** (file-level encryption)
@@ -69,10 +76,15 @@ Mark items with `[x]` as you complete them.
   ```
 
 #### Populate secrets in group_vars/all.yml
-- [x] Set `cloudflare_api_token` using ansible-vault inline string:
+- [x] Vault **both** scoped tokens (replace placeholders with real token values):
+  ```bash
+  ansible-vault encrypt_string 'YOUR_ACME_DNS_TOKEN' --name 'cloudflare_acme_dns_token'
+  ansible-vault encrypt_string 'YOUR_DNS_AUTOMATION_TOKEN' --name 'cloudflare_dns_api_token'
+  # Paste each `!vault |` block into group_vars/all.yml under the matching key names.
+  ```
+- [-] **Or** vault a single legacy token used for ACME and DNS until you split:
   ```bash
   ansible-vault encrypt_string 'YOUR_CF_TOKEN' --name 'cloudflare_api_token'
-  # Paste the output block into group_vars/all.yml
   ```
 - [x] Set `grafana_admin_password`:
   ```bash
@@ -97,7 +109,8 @@ Mark items with `[x]` as you complete them.
 - [x] Set `imapsync_accounts` (with passwords vaulted inline).
   - [x] Verify all vaulted variables decrypt and are readable:
   ```bash
-  ansible -i inventory/hosts.yml localhost -m debug -a "var=cloudflare_api_token"
+  ansible -i inventory/hosts.yml localhost -m debug -a "var=cloudflare_acme_dns_token"
+  ansible -i inventory/hosts.yml localhost -m debug -a "var=cloudflare_dns_api_token"
   ansible -i inventory/hosts.yml localhost -m debug -a "var=grafana_admin_password"
   ```
 
@@ -232,14 +245,14 @@ Mark items with `[x]` as you complete them.
 - [x] All critical services pass
 
 ### 2.2 Full healthcheck
-- [ ] Run full healthcheck:
+- [x] Run full healthcheck:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-full.yml \
     -e healthcheck_basic_auth_user=dominee \
     -e healthcheck_basic_auth_password='YOUR_PASSWORD'
   ```
-- [ ] Traefik, Mailcow, Grafana, Dozzle HTTP checks pass
-- [ ] Mail ports all confirmed listening
+- [x] Traefik, Mailcow, Grafana, Dozzle HTTP checks pass
+- [x] Mail ports all confirmed listening
 
 ### 2.3 DNS (lab Cloudflare records)
 - [ ] Set Cloudflare A records for lab IPs (DNS-only/unproxied for easy troubleshooting):
@@ -478,6 +491,7 @@ Mark items with `[x]` as you complete them.
 # Phase 0 (controller, one-time)
 pip install ansible
 ansible -i inventory/hosts.yml kaiju -m ping
+# Vault cloudflare_acme_dns_token + cloudflare_dns_api_token (or legacy cloudflare_api_token) before preflight
 
 # Phase 1 (lab)
 ansible-playbook -i inventory/hosts.yml playbooks/preflight.yml

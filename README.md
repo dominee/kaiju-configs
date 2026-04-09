@@ -40,7 +40,7 @@ Configuration, Ansible playbooks, and OS context for my Dell PowerEdge R430 serv
    - Edit `inventory/hosts.yml` with the real IP or `kaiju.hell.sk` and your SSH user/key.
    - Edit `group_vars/all.yml` with:
      - `domain: hell.sk`
-     - `cloudflare_api_token: ...`
+     - Scoped Cloudflare **API Tokens** (see `ansible/group_vars/all.yml.example`): `cloudflare_acme_dns_token` (Traefik ACME) and `cloudflare_dns_api_token` (DNS playbooks), or a single legacy `cloudflare_api_token` for both.
      - mailcow settings and any overrides you need.
 3. **(Optional) Cloudflare Origin Cert for web:**
    - In Cloudflare dashboard: *SSL/TLS → Origin Server → Create Certificate*.

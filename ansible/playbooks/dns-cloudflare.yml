@@ -5,7 +5,7 @@
 # Requirements:
 # - group_vars/all.yml:
 #   - domain: hell.sk
-#   - cloudflare_api_token: <token>
+#   - cloudflare_dns_api_token: <scoped API Token> (or legacy cloudflare_api_token)
 #   - web_ip, mail_ip
 #   - (optional) dozzle_fqdn, grafana_fqdn, static_web_vhosts
 #
@@ -29,8 +29,9 @@
     cf_api_base: "https://api.cloudflare.com/client/v4"
     cf_zone_name: "{{ cloudflare_zone_name | default(domain) }}"
 
-    # Optional: webmail is HTTP; can be proxied. Default false unless you set it true.
-    cf_webmail_proxied: "{{ cf_webmail_proxied | default(false) | bool }}"
+    # Optional: webmail is HTTP; can be proxied. Set cf_webmail_proxied in group_vars. _effective avoids recursive play-var templating.
+    cf_webmail_proxied_effective: "{{ cf_webmail_proxied | default(false) | bool }}"
+    cf_web_a_proxied_effective: "{{ cf_web_a_proxied | default(true) | bool }}"
 
   tasks:
     - name: Enforce core DNS safety guard
@@ -43,18 +44,23 @@
             -e dns_core_apply_ready=true
       when: not (dns_core_apply_ready | default(false) | bool)
 
-    - name: Fail if Cloudflare token is not set
+    - name: Fail if no Cloudflare DNS API token is configured
       ansible.builtin.fail:
-        msg: "cloudflare_api_token must be set in group_vars/all.yml"
-      when: cloudflare_api_token is not defined or cloudflare_api_token | length == 0
+        msg: >-
+          Set cloudflare_dns_api_token (scoped API Token with Zone.DNS Edit) in group_vars/all.yml,
+          or cloudflare_api_token for legacy use.
+      when: >
+        (cloudflare_dns_api_token | default('') | trim | length == 0)
+        and (cloudflare_api_token | default('') | trim | length == 0)
+
+    - name: Prepare Cloudflare DNS API token (Bearer)
+      ansible.builtin.import_tasks: tasks/cloudflare-api-token.yml
 
     - name: Get Cloudflare zone id for {{ cf_zone_name }}
       ansible.builtin.uri:
         url: "{{ cf_api_base }}/zones?name={{ cf_zone_name }}"
         method: GET
-        headers:
-          Authorization: "Bearer {{ cloudflare_api_token }}"
-          Content-Type: "application/json"
+        headers: "{{ cf_cloudflare_request_headers }}"
         return_content: true
       register: cf_zone_resp
 
@@ -63,30 +69,39 @@
         cf_zone_id: "{{ (cf_zone_resp.json.result | first).id }}"
       failed_when: cf_zone_resp.json.result | length != 1
 
+    # Avoid regex_replace + from_json (backrefs in Jinja often produce invalid JSON).
+    - name: Build static web A records for Cloudflare (FQDNs under primary domain only)
+      ansible.builtin.set_fact:
+        cf_static_web_a_records: "{{ cf_static_web_a_records | default([]) + [{'type': 'A', 'name': item, 'content': web_ip, 'ttl': 1, 'proxied': cf_web_a_proxied_effective}] }}"
+      loop: >-
+        {{
+          (static_web_vhosts | default([]))
+          | map(attribute='fqdn')
+          | select('match', '(^|\\.)' + (domain | regex_escape) + '$')
+          | list
+          | unique
+        }}
+      loop_control:
+        label: "{{ item }}"
+      when:
+        - web_ip is defined
+        - mail_ip is defined
+
     - name: Build desired core A records (hell.sk only)
       ansible.builtin.set_fact:
-        cf_desired_records: >-
+        cf_desired_records: "{{ cf_desired_core_a_records + (cf_static_web_a_records | default([])) }}"
+      vars:
+        cf_desired_core_a_records: >-
           {{
             [
-              {'type':'A', 'name': kaiju_fqdn | default('kaiju.' + domain), 'content': web_ip, 'ttl': 1, 'proxied': true},
-              {'type':'A', 'name': mailcow_fqdn | default('mail.' + domain), 'content': mail_ip, 'ttl': 1, 'proxied': false},
-              {'type':'A', 'name': 'autodiscover.' + domain, 'content': mail_ip, 'ttl': 1, 'proxied': false},
-              {'type':'A', 'name': 'autoconfig.' + domain, 'content': mail_ip, 'ttl': 1, 'proxied': false},
-              {'type':'A', 'name': mailcow_webmail_fqdn | default('webmail.' + domain), 'content': mail_ip, 'ttl': 1, 'proxied': cf_webmail_proxied},
-              {'type':'A', 'name': grafana_fqdn | default('metrics.' + domain), 'content': web_ip, 'ttl': 1, 'proxied': true},
-              {'type':'A', 'name': dozzle_fqdn | default('logs.' + domain), 'content': web_ip, 'ttl': 1, 'proxied': true}
+              {'type': 'A', 'name': kaiju_fqdn | default('kaiju.' + domain), 'content': web_ip, 'ttl': 1, 'proxied': cf_web_a_proxied_effective},
+              {'type': 'A', 'name': mailcow_fqdn | default('mail.' + domain), 'content': mail_ip, 'ttl': 1, 'proxied': false},
+              {'type': 'A', 'name': 'autodiscover.' + domain, 'content': mail_ip, 'ttl': 1, 'proxied': false},
+              {'type': 'A', 'name': 'autoconfig.' + domain, 'content': mail_ip, 'ttl': 1, 'proxied': false},
+              {'type': 'A', 'name': mailcow_webmail_fqdn | default('webmail.' + domain), 'content': mail_ip, 'ttl': 1, 'proxied': cf_webmail_proxied_effective},
+              {'type': 'A', 'name': grafana_fqdn | default('metrics.' + domain), 'content': web_ip, 'ttl': 1, 'proxied': cf_web_a_proxied_effective},
+              {'type': 'A', 'name': dozzle_fqdn | default('logs.' + domain), 'content': web_ip, 'ttl': 1, 'proxied': cf_web_a_proxied_effective},
             ]
-            +
-            (
-              (static_web_vhosts | default([]))
-              | map(attribute='fqdn')
-              | select('match', '(^|\\.)' + (domain | regex_escape) + '$')
-              | list
-              | unique
-              | map('regex_replace', '^(.*)$', '{\"type\":\"A\",\"name\":\"\\1\",\"content\":\"' + web_ip + '\",\"ttl\":1,\"proxied\":true}')
-              | map('from_json')
-              | list
-            )
           }}
       when:
         - web_ip is defined

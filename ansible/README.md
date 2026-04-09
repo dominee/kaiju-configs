@@ -60,11 +60,11 @@ Notes:
    **inventory-adjacent** `group_vars` resolution still finds that file. Without it, running
    `ansible-playbook` from the **repository root** (e.g. `-i ansible/inventory/hosts.yml`) would
    not load `ansible/group_vars/all.yml`, and plays would see undefined `domain`,
-   `cloudflare_api_token`, etc. Running from `ansible/` with `-i inventory/hosts.yml` can mask
+   Cloudflare vars, etc. Running from `ansible/` with `-i inventory/hosts.yml` can mask
    that, because Ansible also discovers `group_vars` relative to the current working directory.
 
 2. Edit `inventory/hosts.yml` with the server IP/hostname (`kaiju.hell.sk` or IP) and SSH user/key.
-3. Edit `group_vars/all.yml` with domain, Cloudflare API token, and any mailcow settings.
+3. Edit `group_vars/all.yml` with domain, scoped Cloudflare API tokens (`cloudflare_acme_dns_token`, `cloudflare_dns_api_token`, or legacy `cloudflare_api_token`), and any mailcow settings.
 4. **Cloudflare Origin Cert:** For web services behind Cloudflare shield, create an Origin Certificate in Cloudflare (SSL/TLS > Origin Server > Create Certificate) and place `origin.pem` and `origin-key.pem` in `/opt/traefik/certs/` on the server. Or set `cloudflare_origin_cert_enabled: false` to use ACME for all services.
 
 ## Run playbooks
@@ -104,9 +104,10 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 - **dns-cloudflare.yml** — create/update core A records in Cloudflare for `hell.sk` hostnames (kaiju/mail/webmail/autoconfig/autodiscover/metrics/logs + `static_web_vhosts` under `hell.sk`).
 - **mail-dns-records.yml** — create/update mail DNS essentials in Cloudflare (MX/SPF/DMARC and optional DKIM TXT) for `hell.sk`.
 - **dns-validate.yml** — validate that Cloudflare DNS records match expected values (core A records + mail essentials), failing fast on drift before cutovers.
-- **preflight.yml** — validate required variables and prerequisites before deploying (Cloudflare token, IP/FQDNs, Origin cert presence when enabled, observability auth, Grafana admin password, mailcow path).
+- **preflight.yml** — validate required variables and prerequisites before deploying (scoped Cloudflare API tokens or legacy single token, IP/FQDNs, Origin cert presence when enabled, observability auth, Grafana admin password, mailcow path).
 
 ## Certificate strategy
 
 - **Web services** (static site, etc.): Behind Cloudflare shield; use Cloudflare Origin Certificates (default TLS).
 - **Mail** (SMTP, IMAPS, web UI, autoconfig, autodiscover): Let's Encrypt via Cloudflare DNS challenge; certdumper copies to mailcow for postfix/dovecot.
+- **Cloudflare credentials:** Use scoped **API Tokens** — `cloudflare_acme_dns_token` in `.env` for Traefik ACME, and `cloudflare_dns_api_token` for DNS playbooks (see `group_vars/all.yml.example`). A single legacy `cloudflare_api_token` can still back both until you split.

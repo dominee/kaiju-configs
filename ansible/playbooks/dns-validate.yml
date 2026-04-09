@@ -1,6 +1,7 @@
 ---
 # Validate Cloudflare DNS records for this project (hell.sk zone).
-# Run: ansible-playbook playbooks/dns-validate.yml
+# Run from ansible/: ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
+# (Use -i so inventory + group_vars/all.yml load; otherwise Cloudflare vars may be missing/wrong.)
 #
 # Validates:
 # - Core A records (kaiju/mail/webmail/autoconfig/autodiscover/metrics/logs + static_web_vhosts under domain)
@@ -31,6 +32,10 @@
     expected_metrics_fqdn: "{{ grafana_fqdn | default('metrics.' + domain) }}"
     expected_logs_fqdn: "{{ dozzle_fqdn | default('logs.' + domain) }}"
 
+    # Orange cloud for Traefik-facing A records (kaiju, metrics, logs, static_web_vhosts). Set cf_web_a_proxied in group_vars; false = DNS-only.
+    # Use _effective name here — play var must not shadow group_vars or Ansible hits recursive template resolution.
+    cf_web_a_proxied_effective: "{{ cf_web_a_proxied | default(true) | bool }}"
+
     expected_mx_name: "{{ domain }}"
     expected_mx_target: "{{ expected_mail_fqdn }}"
     expected_mx_priority: "{{ mail_mx_priority | default(10) | int }}"
@@ -44,10 +49,17 @@
       {{ 'v=DMARC1; p=' + expected_dmarc_policy + '; rua=' + expected_dmarc_rua + '; ruf=' + expected_dmarc_ruf + '; adkim=s; aspf=s; fo=1' }}
 
   tasks:
-    - name: Fail if Cloudflare token is not set
+    - name: Fail if no Cloudflare DNS API token is configured
       ansible.builtin.fail:
-        msg: "cloudflare_api_token must be set in group_vars/all.yml"
-      when: cloudflare_api_token is not defined or cloudflare_api_token | length == 0
+        msg: >-
+          Set cloudflare_dns_api_token (scoped API Token) in group_vars/all.yml, or set
+          cloudflare_api_token alone for legacy single-token use. See docs/TODO-deploy.md (Cloudflare tokens).
+      when: >
+        (cloudflare_dns_api_token | default('') | trim | length == 0)
+        and (cloudflare_api_token | default('') | trim | length == 0)
+
+    - name: Prepare Cloudflare DNS API token (Bearer)
+      ansible.builtin.import_tasks: tasks/cloudflare-api-token.yml
 
     - name: Fail if web_ip or mail_ip is not set
       ansible.builtin.fail:
@@ -58,9 +70,7 @@
       ansible.builtin.uri:
         url: "{{ cf_api_base }}/zones?name={{ cf_zone_name }}"
         method: GET
-        headers:
-          Authorization: "Bearer {{ cloudflare_api_token }}"
-          Content-Type: "application/json"
+        headers: "{{ cf_cloudflare_request_headers }}"
         return_content: true
       register: cf_zone_resp
 
@@ -69,30 +79,36 @@
         cf_zone_id: "{{ (cf_zone_resp.json.result | first).id }}"
       failed_when: cf_zone_resp.json.result | length != 1
 
+    # Avoid regex_replace + from_json (backrefs in Jinja often produce invalid JSON).
+    - name: Build static web A record expectations (FQDNs under primary domain only)
+      ansible.builtin.set_fact:
+        dns_validate_static_a_records: "{{ dns_validate_static_a_records | default([]) + [{'type': 'A', 'name': item, 'content': expected_web_ip, 'proxied': cf_web_a_proxied_effective}] }}"
+      loop: >-
+        {{
+          (static_web_vhosts | default([]))
+          | map(attribute='fqdn')
+          | select('match', '(^|\\.)' + (domain | regex_escape) + '$')
+          | list
+          | unique
+        }}
+      loop_control:
+        label: "{{ item }}"
+
     - name: Build expected A records list
       ansible.builtin.set_fact:
-        expected_a_records: >-
+        expected_a_records: "{{ dns_validate_core_a_records + (dns_validate_static_a_records | default([])) }}"
+      vars:
+        dns_validate_core_a_records: >-
           {{
             [
-              {'type':'A','name': expected_kaiju_fqdn,    'content': expected_web_ip,  'proxied': true},
-              {'type':'A','name': expected_mail_fqdn,     'content': expected_mail_ip, 'proxied': false},
-              {'type':'A','name': 'autodiscover.' + domain,'content': expected_mail_ip,'proxied': false},
-              {'type':'A','name': 'autoconfig.' + domain, 'content': expected_mail_ip,'proxied': false},
-              {'type':'A','name': expected_webmail_fqdn,  'content': expected_mail_ip, 'proxied': (cf_webmail_proxied | default(false) | bool)},
-              {'type':'A','name': expected_metrics_fqdn,  'content': expected_web_ip,  'proxied': true},
-              {'type':'A','name': expected_logs_fqdn,     'content': expected_web_ip,  'proxied': true}
+              {'type': 'A', 'name': expected_kaiju_fqdn, 'content': expected_web_ip, 'proxied': cf_web_a_proxied_effective},
+              {'type': 'A', 'name': expected_mail_fqdn, 'content': expected_mail_ip, 'proxied': false},
+              {'type': 'A', 'name': 'autodiscover.' + domain, 'content': expected_mail_ip, 'proxied': false},
+              {'type': 'A', 'name': 'autoconfig.' + domain, 'content': expected_mail_ip, 'proxied': false},
+              {'type': 'A', 'name': expected_webmail_fqdn, 'content': expected_mail_ip, 'proxied': (cf_webmail_proxied | default(false) | bool)},
+              {'type': 'A', 'name': expected_metrics_fqdn, 'content': expected_web_ip, 'proxied': cf_web_a_proxied_effective},
+              {'type': 'A', 'name': expected_logs_fqdn, 'content': expected_web_ip, 'proxied': cf_web_a_proxied_effective},
             ]
-            +
-            (
-              (static_web_vhosts | default([]))
-              | map(attribute='fqdn')
-              | select('match', '(^|\\.)' + (domain | regex_escape) + '$')
-              | list
-              | unique
-              | map('regex_replace', '^(.*)$', '{\"type\":\"A\",\"name\":\"\\1\",\"content\":\"' + expected_web_ip + '\",\"proxied\":true}')
-              | map('from_json')
-              | list
-            )
           }}
 
     - name: Validate A records

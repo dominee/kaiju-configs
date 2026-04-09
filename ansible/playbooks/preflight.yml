@@ -29,13 +29,29 @@
           - (enforce_hell_sk_domain | default(true) | bool) | ternary(domain == "hell.sk", true)
         fail_msg: "domain must be set to hell.sk for this repository (or set enforce_hell_sk_domain: false explicitly)."
 
-    - name: Require Cloudflare API token for ACME/DNS automation
+    - name: Require scoped Cloudflare API tokens (ACME + DNS) or legacy single token
       ansible.builtin.assert:
         that:
-          - cloudflare_api_token is defined
-          - cloudflare_api_token | length > 0
-          - cloudflare_api_token != "your-cloudflare-api-token"
-        fail_msg: "cloudflare_api_token must be set (real token) in group_vars/all.yml (use ansible-vault if preferred)."
+          - >-
+            (cloudflare_acme_dns_token | default('') | trim | length > 0)
+            or (cloudflare_api_token | default('') | trim | length > 0)
+          - >-
+            (cloudflare_dns_api_token | default('') | trim | length > 0)
+            or (cloudflare_api_token | default('') | trim | length > 0)
+          - >-
+            not (
+              cloudflare_api_token is defined
+              and (
+                (cloudflare_api_token | trim | length) == 0
+                or cloudflare_api_token == "your-cloudflare-api-token"
+              )
+            )
+        fail_msg: >-
+          Set scoped API Tokens (recommended): cloudflare_acme_dns_token for Traefik ACME DNS-01
+          (Zone.DNS Edit on zones used for certificates) and cloudflare_dns_api_token for
+          dns-validate / dns-cloudflare / mail-dns-records (Zone.DNS Read+Edit, Zone.Zone Read).
+          Until you split them, a single vaulted cloudflare_api_token may satisfy both checks.
+          Use Cloudflare API Tokens (Bearer) only; Global API Key is not supported.
 
     - name: Require web_ip and mail_ip for DNS split-host setup
       ansible.builtin.assert:

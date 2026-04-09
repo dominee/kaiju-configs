@@ -30,9 +30,17 @@ mail_hostname: "mail.{{ domain }}"
 # Force Docker forward rules on/off (default: auto — true if ansible_facts show docker0).
 # nftables_enable_docker_forward: false
 
-# --- Cloudflare ---
-# DNS managed by Cloudflare. API token for ACME (Let's Encrypt via DNS challenge).
-cloudflare_api_token: "your-cloudflare-api-token"
+# --- Cloudflare (scoped API Tokens — recommended) ---
+# Create tokens at: Dashboard → Manage Account → API Tokens → Create Token.
+# Use "Edit zone DNS" template or custom with minimal permissions; never commit token values.
+#
+# ACME (Traefik Let's Encrypt DNS-01): DNS Edit on each zone that needs certs (e.g. hell.sk).
+cloudflare_acme_dns_token: "your-cloudflare-acme-dns-token"
+# DNS automation (dns-validate, dns-cloudflare, mail-dns-records): DNS Read+Edit + Zone Read on hell.sk.
+cloudflare_dns_api_token: "your-cloudflare-dns-api-token"
+#
+# Legacy: single token for both (until you split scopes). If set, it fills in when the above are empty.
+# cloudflare_api_token: "your-single-cloudflare-api-token"
 # Web services behind Cloudflare shield use Cloudflare Origin Certificates.
 # Set to true after placing origin.pem and origin-key.pem in /opt/traefik/certs/
 cloudflare_origin_cert_enabled: false
@@ -59,6 +67,8 @@ cloudflare_origin_cert_enabled: false
 # cloudflare_zone_name: "hell.sk"
 # Optional: proxy webmail through Cloudflare (HTTP only). Keep mail.hell.sk DNS-only.
 cf_webmail_proxied: false
+# Orange cloud for kaiju, metrics, logs, and static_web_vhosts A records. Set false if those names are DNS-only in Cloudflare.
+# cf_web_a_proxied: false
 
 # --- Mailcow ---
 mailcow_install_path: /vault/mailcow

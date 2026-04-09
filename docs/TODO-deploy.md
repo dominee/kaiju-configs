@@ -213,12 +213,12 @@ Mark items with `[x]` as you complete them.
   ansible-playbook -i inventory/hosts.yml playbooks/observability.yml
   ```
 - [x] Verify containers running: `docker ps | grep -E 'prometheus|grafana|dozzle|cadvisor|node-exporter'`
-- [ ] Access Grafana: `https://metrics.hell.sk` (lab DNS or `/etc/hosts`)
+- [x] Access Grafana: `https://metrics.hell.sk` (lab DNS or `/etc/hosts`)
   - Login with `dominee` / `grafana_admin_password`
   - Add Prometheus data source: `http://prometheus:9090`
-  - Import dashboards: Node Exporter Full (ID 1860), cAdvisor (ID 14282), Traefik v2/v3
-- [ ] Access Dozzle: `https://logs.hell.sk` (verify Basic Auth prompt)
-- [ ] Verify Basic Auth is enforced on both UIs (curl without creds should return 401)
+  - Import dashboards: Node Exporter Full (ID 1860), cAdvisor (ID 19724), Traefik Official Standalone Dashboard (ID 17346)
+- [x] Access Dozzle: `https://logs.hell.sk` (verify Basic Auth prompt)
+- [x] Verify Basic Auth is enforced on both UIs (curl without creds should return 401)
 
 ---
 

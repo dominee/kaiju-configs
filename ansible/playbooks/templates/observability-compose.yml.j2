@@ -67,6 +67,9 @@ services:
       - /sys:/sys:ro
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
       - /var/lib/docker/:/var/lib/docker:ro
+      # BTRFS + LUKS: cAdvisor resolves fstab device paths (e.g. /dev/mapper/sda3_crypt); without /dev
+      # those stats fail and disk/BTRFS-related series can be empty or incomplete.
+      - /dev:/dev:ro
       - /dev/disk/:/dev/disk:ro
     networks:
       - proxy

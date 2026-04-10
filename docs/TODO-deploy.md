@@ -294,26 +294,33 @@ These playbooks target a **shared Cloudflare zone** (production still serves `he
 ### 2.4 TLS certificate validation
 - [x] Cloudflare Origin Cert (if `cloudflare_origin_cert_enabled: true`):
   - [x] Generate Origin Cert in Cloudflare dashboard (SSL/TLS → Origin Server)
-  - [x] Place `origin.pem` and `origin-key.pem` in `/opt/traefik/certs/`
+  - [x] Place cert/key PEMs in `/opt/traefik/certs/` (default pair: `origin.pem` / `origin-key.pem`; or paths from `origin_cert_pairs`, e.g. `origin-hell-sk.pem` / `origin-hell-sk-key.pem`)
   - [x] Redeploy Traefik: re-run `docker.yml`
-- [ ] ACME certs (mail hostnames):
-  - [ ] Confirm `acme.json` populated (Traefik has issued certs):
+- [x] ACME certs (mail hostnames):
+  - [x] Confirm `acme.json` populated (Traefik has issued certs for mail / `certresolver=cloudflare` routers):
+    - **Note:** There is **no** `/opt/traefik/letsencrypt/` on the host. Traefik stores ACME state in the Docker named volume **`traefik_certs`**, mounted inside the container as **`/letsencrypt/acme.json`** (see `ansible/playbooks/templates/traefik-compose.yml.j2`).
     ```bash
-    cat /opt/traefik/letsencrypt/acme.json | python3 -m json.tool | grep -E '"domain"|"main"'
+    docker exec traefik cat /letsencrypt/acme.json | python3 -m json.tool | grep -E '"domain"|"main"'
     ```
-  - [ ] Confirm no cert errors in Traefik logs:
+    If the file is missing or empty, check `/opt/traefik/.env` has a valid `CF_DNS_API_TOKEN` (from `cloudflare_acme_dns_token` / legacy token) and Traefik logs for ACME/DNS errors.
+  - [x] Confirm no cert errors in Traefik logs:
     ```bash
     docker logs traefik 2>&1 | grep -i 'error\|acme\|certif'
     ```
 
-### 2.5 Mail flow validation (lab)
-- [ ] Send test email from `dominee@hell.sk` to an external address
-- [ ] Send test email to `dominee@hell.sk` from external
-- [ ] Confirm DKIM signing (check headers of received mail)
-- [ ] Confirm SPF passes (check headers)
-- [ ] Validate DMARC policy (use `https://mxtoolbox.com/dmarc.aspx`)
-- [ ] Test autodiscover from a mail client (Outlook/Thunderbird)
-- [ ] Test SOGo webmail: `https://webmail.hell.sk`
+### 2.5 Mail validation (lab — no public MX on kaiju yet)
+
+While **MX / SPF / DMARC** in DNS still point at **production**, the lab host is usually **not** the Internet’s mail destination. Do **not** expect inbound mail from the public Internet or meaningful SPF/DMARC checks against kaiju during this phase.
+
+- [x] **SOGo / webmail:** Log in at `https://webmail.hell.sk` (lab DNS or `/etc/hosts`) and send a message **to yourself** on the same domain; confirm delivery and open the message.
+- [x] **DKIM (local):** On that self-delivered message, confirm a **`DKIM-Signature`** header is present (Mailcow signs for the hosted domain).
+- [x] **SMTP + IMAP loop on `mail_ip`:** From your workstation, run the automation playbook (runs on kaiju, connects to **`mail_ip`** so TLS SNI still matches `mailcow_fqdn`):
+  ```bash
+  ansible-playbook -i inventory/hosts.yml playbooks/mail-flow-lab.yml
+  ```
+  Set `mail_flow_lab_test_user` and `mail_flow_lab_test_password` in `group_vars/all.yml` (vault the password). The playbook **defaults** to skipping TLS cert verification (Origin/snake-oil). Set **`mail_flow_lab_tls_insecure: false`** to verify against the OS trust store (e.g. Let’s Encrypt). See `ansible/playbooks/mail-flow-lab.yml`.
+
+**Defer until after mail DNS cutover (Phase 3):** external send/receive, SPF/DMARC alignment with kaiju, mxtoolbox DMARC checks, and client autodiscover against public DNS — see **§3.4** (post-cutover validation).
 
 ### 2.6 Mailbox pre-migration (lab — first sync from abyss)
 - [ ] Ensure abyss.hell.sk is reachable on IMAPS/993
@@ -401,8 +408,13 @@ These playbooks target a **shared Cloudflare zone** (production still serves `he
     -e healthcheck_basic_auth_user=dominee \
     -e healthcheck_basic_auth_password='YOUR_PASSWORD'
   ```
-- [ ] Test inbound mail delivery to all 3 accounts
-- [ ] Test outbound mail from all 3 accounts
+- [ ] **Internet mail flow (now meaningful — MX points at kaiju):**
+  - [ ] Send test email from `dominee@hell.sk` to an **external** address; confirm receipt.
+  - [ ] Send test email **from external** to `dominee@hell.sk` (and other mailboxes); confirm delivery.
+  - [ ] On received mail, confirm **DKIM-Signature** and **SPF** (`Received-SPF` / `Authentication-Results`) behave as expected.
+  - [ ] Validate **DMARC** for the domain (e.g. `https://mxtoolbox.com/dmarc.aspx` or your monitoring) once MX/SPF/DMARC records are on kaiju.
+  - [ ] **Autodiscover / autoconfig:** From a mail client (Outlook/Thunderbird), add an account using **public** DNS and confirm autodiscover/autoconfig against `mail.hell.sk` / `autodiscover.hell.sk` / `autoconfig.hell.sk`.
+- [ ] (Optional) Re-run **`mail-flow-lab.yml`** against **production `mail_ip`** if you want the scripted SMTP+IMAP check after cutover.
 - [ ] Check Grafana dashboards for post-cutover anomalies
 
 ### 3.5 Post-cutover mailbox delta sync (optional)
@@ -531,6 +543,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-basic.yml
 ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-full.yml
 ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
 # mail DNS validation is skipped by default; add -e validate_mail_dns=true post-cutover
+# ansible-playbook -i inventory/hosts.yml playbooks/mail-flow-lab.yml   # SMTP+IMAP on mail_ip (see group_vars)
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml -e imapsync_dry_run=true
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml
 

@@ -90,6 +90,12 @@ mailcow_webmail_fqdn: "webmail.{{ domain }}"
 # mailcow_admin_user: admin
 # mailcow_admin_pass: "secure-password"
 # mailcow_mailbox_secret: "random-secret-for-mailbox"
+#
+# mail-flow-lab.yml — SMTP 587 + IMAPS 993 loop against mail_ip (vault the password)
+# mail_flow_lab_test_user: "dominee@{{ domain }}"
+# mail_flow_lab_test_password: "use-ansible-vault"
+# TLS verify: playbook defaults to insecure (Origin/snake-oil). For strict LE verification: mail_flow_lab_tls_insecure: false
+# mail_flow_lab_tls_insecure: false
 
 # --- Optional: Docker deploy user (default from inventory) ---
 docker_deploy_user: "{{ ansible_user }}"

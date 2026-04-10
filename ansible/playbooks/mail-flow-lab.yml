@@ -1,0 +1,104 @@
+---
+# Lab: verify SMTP submission (587 STARTTLS + AUTH) and IMAP retrieval (993) against Mailcow
+# on mail_ip, without relying on public MX (still pointing at production).
+#
+# Run from ansible/:
+#   ansible-playbook -i inventory/hosts.yml playbooks/mail-flow-lab.yml
+#
+# Requires in group_vars/all.yml (use ansible-vault for the password):
+#   mail_flow_lab_test_user: "you@hell.sk"
+#   mail_flow_lab_test_password: "mailbox password (full email as SMTP username)"
+#
+# SMTP 535 authentication failed: wrong password, mailbox vs admin user, or SMTP AUTH disabled for that account.
+#
+# TLS: defaults to insecure verification (Origin/snake-oil). For strict LE: mail_flow_lab_tls_insecure: false
+
+- name: Lab mail flow test (SMTP + IMAP on mail_ip)
+  hosts: kaiju
+  gather_facts: false
+  become: false
+
+  vars:
+    mail_flow_lab_tls_name: "{{ mailcow_fqdn }}"
+    mail_flow_lab_smtp_host: "{{ mail_ip }}"
+    mail_flow_lab_imap_host: "{{ mail_ip }}"
+    mail_flow_lab_tls_insecure_effective: "{{ mail_flow_lab_tls_insecure | default(true) | bool }}"
+
+  tasks:
+    - name: Require mail_flow_lab_test_user and mail_flow_lab_test_password
+      ansible.builtin.assert:
+        that:
+          - mail_flow_lab_test_user is defined
+          - mail_flow_lab_test_user | length > 0
+          - mail_flow_lab_test_password is defined
+          - mail_flow_lab_test_password | length > 0
+          - mail_ip is defined
+          - mailcow_fqdn is defined
+        fail_msg: >-
+          Set mail_flow_lab_test_user and mail_flow_lab_test_password in group_vars/all.yml (vault the password).
+          mail_ip and mailcow_fqdn must also be set.
+
+    - name: Generate correlation token for this run
+      ansible.builtin.set_fact:
+        mail_flow_lab_token: "{{ lookup('password', '/dev/null chars=ascii_lowercase,digits length=16') }}"
+
+    - name: Install mail flow lab script on target
+      ansible.builtin.copy:
+        src: files/mail_flow_lab_test.py
+        dest: /tmp/mail_flow_lab_test.py
+        mode: "0755"
+
+    - name: Lab mail — SMTP send (587 STARTTLS + AUTH)
+      ansible.builtin.command: python3 /tmp/mail_flow_lab_test.py send
+      environment:
+        MAIL_USER: "{{ mail_flow_lab_test_user }}"
+        MAIL_PASSWORD: "{{ mail_flow_lab_test_password }}"
+        SMTP_HOST: "{{ mail_flow_lab_smtp_host }}"
+        IMAP_HOST: "{{ mail_flow_lab_imap_host }}"
+        TLS_SERVER_NAME: "{{ mail_flow_lab_tls_name }}"
+        MAIL_FLOW_LAB_TLS_INSECURE: "{{ '1' if mail_flow_lab_tls_insecure_effective else '0' }}"
+        MAIL_FLOW_LAB_TOKEN: "{{ mail_flow_lab_token }}"
+      register: mail_flow_lab_smtp
+      changed_when: false
+      no_log: false
+
+    - name: Fail if SMTP send failed
+      ansible.builtin.fail:
+        msg: >-
+          mail-flow-lab SMTP send failed. If you see 535 authentication failed: use the mailbox password
+          (not Mailcow admin), full email as MAIL_USER, and confirm SMTP AUTH is allowed for that mailbox in Mailcow.
+          TLS: SNI hostname {{ mail_flow_lab_tls_name }}.
+      when: mail_flow_lab_smtp.rc != 0
+
+    - name: Wait for message to land in INBOX
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Lab mail — IMAP fetch (993)
+      ansible.builtin.command: python3 /tmp/mail_flow_lab_test.py fetch
+      environment:
+        MAIL_USER: "{{ mail_flow_lab_test_user }}"
+        MAIL_PASSWORD: "{{ mail_flow_lab_test_password }}"
+        IMAP_HOST: "{{ mail_flow_lab_imap_host }}"
+        TLS_SERVER_NAME: "{{ mail_flow_lab_tls_name }}"
+        MAIL_FLOW_LAB_TLS_INSECURE: "{{ '1' if mail_flow_lab_tls_insecure_effective else '0' }}"
+        MAIL_FLOW_LAB_TOKEN: "{{ mail_flow_lab_token }}"
+      register: mail_flow_lab_imap
+      changed_when: false
+      no_log: true
+
+    - name: Fail if IMAP fetch failed
+      ansible.builtin.fail:
+        msg: >-
+          mail-flow-lab IMAP fetch failed after successful SMTP. Check Dovecot, mailbox ACL, or increase pause
+          if delivery is slow. Re-run with -vvv to see script stderr (no_log hides it in normal output).
+      when: mail_flow_lab_imap.rc != 0
+
+    - name: Mail flow lab completed
+      ansible.builtin.debug:
+        msg: "mail-flow-lab: SMTP send and IMAP fetch succeeded."
+
+    - name: Remove mail flow lab script from target
+      ansible.builtin.file:
+        path: /tmp/mail_flow_lab_test.py
+        state: absent

@@ -53,10 +53,10 @@ Use **API Tokens** (Bearer), not the Global API Key. Create two minimal tokens i
 
 | Variable | Used by | Suggested permissions |
 |----------|---------|------------------------|
-| `cloudflare_acme_dns_token` | Traefik ACME DNS-01 (`docker.yml` → `CF_DNS_API_TOKEN`) | **Zone → DNS → Edit** on each zone Traefik must issue certs for (e.g. `hell.sk`; add other zones if you use ACME for them). |
+| `cloudflare_acme_dns_token` | Traefik **only if** `cloudflare_origin_cert_enabled: false` — Let's Encrypt DNS-01 (`docker.yml` → `CF_DNS_API_TOKEN`) | **Zone → DNS → Edit** on each zone that needs public certs. Not required when using **Cloudflare Origin Certificates** only. |
 | `cloudflare_dns_api_token` | `dns-validate.yml`, `dns-cloudflare.yml`, `mail-dns-records.yml` | **Zone → DNS → Edit**, **Zone → Zone → Read** on `hell.sk` (Edit covers read for API purposes). |
 
-- [x] Create token **A** (ACME): vault as `cloudflare_acme_dns_token`.
+- [x] Create token **A** (ACME): vault as `cloudflare_acme_dns_token` — **skip if** you use Origin Certificates only (`cloudflare_origin_cert_enabled: true`).
 - [x] Create token **B** (DNS automation): vault as `cloudflare_dns_api_token`.
 
 #### DNS playbooks — safeguards (`group_vars/all.yml`)
@@ -289,7 +289,7 @@ These playbooks target a **shared Cloudflare zone** (production still serves `he
   ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
   # Validates core A records + static vhosts excluding production-static list (mail DNS skipped by default)
   ```
-- [ ] All DNS validation assertions pass (core A + eligible static vhosts only)
+- [x] All DNS validation assertions pass (core A + eligible static vhosts only)
 
 ### 2.4 TLS certificate validation
 - [x] Cloudflare Origin Cert (if `cloudflare_origin_cert_enabled: true`):

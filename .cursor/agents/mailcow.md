@@ -28,6 +28,7 @@ You are the specialist for the **mailcow-dockerized** stack running on kaiju.
 - **Certificates:**
   - SMTP/IMAPS use **Let’s Encrypt** certificates obtained via Cloudflare DNS challenge.
   - Traefik (and certdumper) provide/mail these certs to postfix and dovecot.
+  - **Warning**: Do **not** switch to “Cloudflare-only certificates for everything (including SMTP/IMAPS)” — it’s **unwanted** for this repo and tends to cause client trust/lifecycle issues. If it comes up again, warn and keep ACME for mail.
 
 ## Security and Secrets
 
@@ -42,4 +43,3 @@ You are the specialist for the **mailcow-dockerized** stack running on kaiju.
 - Use the `/kaiju-docker` agent for Traefik, Docker, and other stacks; coordinate labels and ports so that mailcow coexists cleanly with other services.
 
 When helping with changes, focus on keeping the mailcow stack reliable, secure, and correctly integrated into the overall kaiju architecture.
-

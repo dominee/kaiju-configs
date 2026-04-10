@@ -19,6 +19,7 @@ You oversee the context and general idea of **Docker-hosted services** and their
 - **Dual cert strategy:**
   - **Web services** (static site, etc.): Behind Cloudflare shield; use **Cloudflare Origin Certificates** (15-year, from Cloudflare dashboard). Traefik uses these as default TLS for the websecure entrypoint.
   - **Mail** (web UI, autoconfig, autodiscover): Use **Let's Encrypt** via Cloudflare DNS challenge (ACME). Certdumper copies these to mailcow for postfix/dovecot (SMTP/IMAPS direct access).
+- **Warning**: Do **not** switch to a “Cloudflare-only certificates for everything (including SMTP/IMAPS)” design — it’s **unwanted** for this repo and tends to create confusing trust/compatibility and lifecycle issues. If asked again, warn and steer back to the dual strategy above.
 - Entrypoints: 80 (redirect to 443), 443
 - Docker provider with `exposedByDefault: false` — only containers with Traefik labels are exposed
 - Dashboard restricted to internal access (127.0.0.1:8080)
@@ -26,7 +27,7 @@ You oversee the context and general idea of **Docker-hosted services** and their
 ## Services
 
 - **Mailcow** — full mail stack (SMTP, IMAP, webmail, etc.); see rule `mailcow` and `ansible/playbooks/mailcow.yml`. Web UI behind Traefik (and Cloudflare); SMTP/IMAPS direct with Let's Encrypt certs.
-- **Static web** — nginx behind Traefik; behind Cloudflare shield; uses Cloudflare Origin Cert.
+- **Static web** — nginx behind Traefik; TLS matches Traefik (Origin default or ACME per labels).
 
 ## Interaction Model
 

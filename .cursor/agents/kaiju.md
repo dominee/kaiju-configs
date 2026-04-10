@@ -18,15 +18,16 @@ You maintain the general concept of the **kaiju** server and the services runnin
 ## DNS and Cloudflare
 
 - **DNS:** Managed by Cloudflare
-- **Web services:** Behind Cloudflare shield; use **Cloudflare Origin Certificates** for TLS between Cloudflare and origin (Traefik)
+- **Web services:** Behind Cloudflare shield; **Cloudflare Origin Certificates** for TLS between Cloudflare edge and origin (Traefik) when that mode is enabled
 - **Mail:** Accessible directly (not behind Cloudflare); use **Let's Encrypt** certificates obtained via Cloudflare API (DNS challenge)
 - **Certificate management:** Traefik or Certbot; Traefik handles ACME for mail (and certdumper copies to mailcow)
+- **Warning**: A “Cloudflare-only certificates for everything (including SMTP/IMAPS)” approach is **unwanted** for this repo. If it comes up again, warn and steer back to the dual strategy (Origin for web behind Cloudflare, ACME for mail).
 
 ## Exposed Services (Internet)
 
 - **SMTP** with TLS (ports 25, 465, 587) — direct access, Let's Encrypt certs
 - **IMAPS** (port 993) — direct access, Let's Encrypt certs
-- **HTTPS** — fronted by Cloudflare CDN; origin uses Cloudflare Origin Certificates; web services behind Cloudflare shield
+- **HTTPS** — fronted by Cloudflare CDN when proxied; origin uses Cloudflare Origin Certificates (or ACME if configured)
 
 All other services are internal or reachable only via Traefik with appropriate routing.
 
@@ -36,9 +37,7 @@ All other services are internal or reachable only via Traefik with appropriate r
   - **Dozzle** for logs (behind Traefik + Basic Auth)
   - **Grafana/Prometheus** for metrics and dashboards (behind Traefik + Basic Auth)
   - **ctop** for interactive container status (CLI)
-- **Traefik** — reverse proxy for all Docker-hosted HTTP/HTTPS services; dual cert strategy:
-  - **Web (behind Cloudflare):** Cloudflare Origin Cert (default TLS)
-  - **Mail (web UI, autoconfig, autodiscover):** Let's Encrypt via Cloudflare DNS challenge; certdumper copies to mailcow for postfix/dovecot
+- **Traefik** — reverse proxy for all Docker-hosted HTTP/HTTPS services; **TLS:** Cloudflare Origin Certificates end-to-end at the origin (recommended), with optional Let’s Encrypt fallback when Origin is disabled
 - **Mail:** containerized **mailcow** (replaces legacy postfix + dovecot + amavis + roundcube)
 - **Config:** Ansible playbooks in this repo; no direct SSH from automation — human runs playbooks
 

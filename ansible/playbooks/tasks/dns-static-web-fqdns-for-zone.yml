@@ -1,0 +1,24 @@
+---
+# Build dns_static_web_fqdns_for_zone: static_web_vhosts FQDNs in the primary zone, excluding
+# dns_production_static_fqdns_effective unless dns_production_static_allow_changes_effective is true.
+# Requires: static_web_vhosts, domain, dns_production_static_fqdns_effective,
+#           dns_production_static_allow_changes_effective
+
+- name: Normalize production-static FQDN list for comparison
+  ansible.builtin.set_fact:
+    dns_production_static_fqdns_lc: "{{ dns_production_static_fqdns_effective | map('lower') | list }}"
+
+- name: Initialize filtered static web FQDN list for primary zone
+  ansible.builtin.set_fact:
+    dns_static_web_fqdns_for_zone: []
+
+- name: Accumulate static web FQDNs for DNS (skip production-static names unless allow flag)
+  ansible.builtin.set_fact:
+    dns_static_web_fqdns_for_zone: "{{ dns_static_web_fqdns_for_zone + [item] }}"
+  loop: "{{ _dns_static_zone_candidates }}"
+  loop_control:
+    label: "{{ item }}"
+  vars:
+    _dns_static_zone_candidates: >-
+      {{ (static_web_vhosts | default([])) | map(attribute='fqdn') | select('match', '(^|\\.)' + (domain | regex_escape) + '$') | list | unique }}
+  when: dns_production_static_allow_changes_effective | bool or (item | lower) not in dns_production_static_fqdns_lc

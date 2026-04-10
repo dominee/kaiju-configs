@@ -59,6 +59,24 @@ Use **API Tokens** (Bearer), not the Global API Key. Create two minimal tokens i
 - [x] Create token **A** (ACME): vault as `cloudflare_acme_dns_token`.
 - [x] Create token **B** (DNS automation): vault as `cloudflare_dns_api_token`.
 
+#### DNS playbooks — safeguards (`group_vars/all.yml`)
+
+These playbooks target a **shared Cloudflare zone** (production still serves `hell.sk` / static sites during lab).
+
+| Variable | Typical lab | Purpose |
+|----------|-------------|---------|
+| `dns_production_static_allow_changes` | `false` (default) | When false, **apex / www / from** (and default extra FQDNs in `dns_production_static_fqdns`) are **not** validated or updated as A → `web_ip` from `static_web_vhosts`. Core names (kaiju, mail, metrics, logs, …) are still managed. Set `true` after cutover when those sites should follow kaiju. |
+| `dns_production_static_fqdns` | *(optional override)* | List of FQDNs treated as production-static. Default includes `domain`, `www.` + `domain`, `from.` + `domain`, `goldendawns-clan.cz`, `www.goldendawns-clan.cz`. |
+| `cf_web_a_proxied` | `false` | Lab: DNS-only (gray cloud) for kaiju, metrics, logs, and applicable static A records. Production behind shield: `true`. |
+| `cf_webmail_proxied` | `false` | Proxy mode for webmail A record only. |
+
+**`dns-cloudflare.yml` extra flags** (usually `-e`, not committed):
+
+| Flag | Required to write? | Purpose |
+|------|---------------------|---------|
+| `dns_core_apply_ready=true` | Yes | Without it the playbook **fails** before any Cloudflare API write. |
+| `cloudflare_allow_updates=true` | For PUT | Without it, **drift on existing records fails** the play instead of overwriting. Creating **missing** records can still occur when the play is allowed to run. |
+
 #### ansible-vault setup
 - [x] Decide on secret management strategy: **ansible-vault** (file-level encryption)
 - [x] Create a strong vault password and store it in your password manager
@@ -255,30 +273,29 @@ Use **API Tokens** (Bearer), not the Global API Key. Create two minimal tokens i
 - [x] Mail ports all confirmed listening
 
 ### 2.3 DNS (lab Cloudflare records)
-- [ ] Set Cloudflare A records for lab IPs (DNS-only/unproxied for easy troubleshooting):
-  - `kaiju.hell.sk` → `10.101.10.73`
-  - `mail.hell.sk` → `10.101.10.74`
-  - `autodiscover.hell.sk` → `10.101.10.74`
-  - `autoconfig.hell.sk` → `10.101.10.74`
-  - `webmail.hell.sk` → `10.101.10.74`
-  - `metrics.hell.sk` → `10.101.10.73`
-  - `logs.hell.sk` → `10.101.10.73`
-  - static vhosts → `10.101.10.73`
-- [ ] Run DNS automation to create/verify A records (safe — does NOT touch MX/SPF/DMARC):
+- [x] In `group_vars/all.yml`, keep **`dns_production_static_allow_changes: false`** (default) so apex / www / from (and other `dns_production_static_fqdns`) stay on **production** IPs in Cloudflare while lab runs on kaiju. Set **`cf_web_a_proxied: false`** if those core names are DNS-only in the zone.
+- [x] Set Cloudflare A records for **lab** IPs where automation applies (DNS-only is typical for troubleshooting):
+  - Always managed by playbooks toward `web_ip` / `mail_ip`: `kaiju.hell.sk` → `10.101.10.73`; `mail.*` / `autodiscover` / `autoconfig` / `webmail` → `10.101.10.74`; `metrics` / `logs` → `10.101.10.73`
+  - **Not** changed by `dns-cloudflare.yml` / `dns-validate.yml` while `dns_production_static_allow_changes` is false: apex `hell.sk`, `www.hell.sk`, `from.hell.sk` (and default extra names in `dns_production_static_fqdns`) — leave on production or manage manually.
+- [x] Run DNS automation (does **not** touch MX/SPF/DMARC; does **not** apply to production-static static FQDNs unless you set `dns_production_static_allow_changes: true`):
   ```bash
-  ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml
+  # Writes: pass dns_core_apply_ready. Overwrites existing differing A records only with cloudflare_allow_updates=true.
+  ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml \
+    -e dns_core_apply_ready=true
+  # ansible-playbook ... -e dns_core_apply_ready=true -e cloudflare_allow_updates=true   # when you accept PUTs
+
   # NOTE: mail-dns-records.yml is intentionally NOT run here.
   # MX/SPF/DMARC still point to abyss.hell.sk (production). Run it only at cutover.
   ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
-  # Validates A records only (mail DNS validation is skipped by default during lab)
+  # Validates core A records + static vhosts excluding production-static list (mail DNS skipped by default)
   ```
-- [ ] All DNS validation assertions pass (A records only)
+- [ ] All DNS validation assertions pass (core A + eligible static vhosts only)
 
 ### 2.4 TLS certificate validation
 - [x] Cloudflare Origin Cert (if `cloudflare_origin_cert_enabled: true`):
   - [x] Generate Origin Cert in Cloudflare dashboard (SSL/TLS → Origin Server)
-  - [ ] Place `origin.pem` and `origin-key.pem` in `/opt/traefik/certs/`
-  - [ ] Redeploy Traefik: re-run `docker.yml`
+  - [x] Place `origin.pem` and `origin-key.pem` in `/opt/traefik/certs/`
+  - [x] Redeploy Traefik: re-run `docker.yml`
 - [ ] ACME certs (mail hostnames):
   - [ ] Confirm `acme.json` populated (Traefik has issued certs):
     ```bash
@@ -345,11 +362,14 @@ Use **API Tokens** (Bearer), not the Global API Key. Create two minimal tokens i
 - [ ] Confirm message counts are current for all 3 mailboxes
 
 ### 3.3 DNS cutover (Cloudflare)
+- [ ] When static sites (apex, www, from, …) should point at kaiju’s **production** `web_ip`, set **`dns_production_static_allow_changes: true`** in `group_vars/all.yml` (or pass `-e dns_production_static_allow_changes=true` once). Until then, `dns-cloudflare.yml` will not move those A records.
 - [ ] Update Cloudflare A records to production IPs:
   ```bash
-  ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml
+  ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml \
+    -e dns_core_apply_ready=true \
+    -e cloudflare_allow_updates=true
   ```
-  (or manually in Cloudflare dashboard if you prefer point-in-time control)
+  Adjust proxy flags (`cf_web_a_proxied`, `cf_webmail_proxied`) for production if needed. Omit `cloudflare_allow_updates=true` only if you are sure there is no drift to fix (otherwise the play may fail on assert). You can still apply changes manually in the Cloudflare dashboard if you prefer point-in-time control.
 - [ ] **Cut mail DNS over to kaiju** — only after imapsync final sync, mailcow confirmed healthy:
   ```bash
   # This WILL overwrite MX/SPF/DMARC. abyss.hell.sk will stop receiving mail immediately.
@@ -501,7 +521,8 @@ ansible-playbook -i inventory/hosts.yml playbooks/ssh-keys.yml
 ansible-playbook -i inventory/hosts.yml playbooks/docker.yml
 ansible-playbook -i inventory/hosts.yml playbooks/mailcow.yml
 ansible-playbook -i inventory/hosts.yml playbooks/observability.yml
-ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml
+ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml -e dns_core_apply_ready=true
+# Add -e cloudflare_allow_updates=true when existing A records must be overwritten (PUT).
 # NOTE: mail-dns-records.yml is NOT run here — MX/SPF/DMARC are only pushed at production cutover
 # ansible-playbook -i inventory/hosts.yml playbooks/mail-dns-records.yml -e mail_dns_cutover_ready=true
 
@@ -516,7 +537,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml
 # Phase 3 (production cutover)
 ansible-playbook -i inventory/hosts.yml playbooks/ip-migration.yml -e prod_web_ip=... -e prod_mail_ip=... -t precheck,add_prod_ips
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml   # final pre-cutover delta
-ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml               # switch to prod IPs
+ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml -e dns_core_apply_ready=true -e cloudflare_allow_updates=true   # prod IPs; enable production-static static sites in group_vars first
 ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
 ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-full.yml -e healthcheck_validate_certs=true ...
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml   # post-cutover delta

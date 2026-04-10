@@ -4,7 +4,8 @@
 # (Use -i so inventory + group_vars/all.yml load; otherwise Cloudflare vars may be missing/wrong.)
 #
 # Validates:
-# - Core A records (kaiju/mail/webmail/autoconfig/autodiscover/metrics/logs + static_web_vhosts under domain)
+# - Core A records (kaiju/mail/webmail/autoconfig/autodiscover/metrics/logs) — always checked against group_vars
+# - static_web_vhosts under the primary zone — only FQDNs not listed in dns_production_static_fqdns (see below)
 # - Mail essentials (MX, SPF, DMARC; DKIM optional if provided)
 #
 # Fails if records are missing or drifted.
@@ -14,6 +15,11 @@
 # By default, mail record validation is SKIPPED (validate_mail_dns: false).
 # Only enable after mail-dns-records.yml has been run for the production cutover:
 #   ansible-playbook playbooks/dns-validate.yml -e validate_mail_dns=true
+#
+# *** PRODUCTION SAFETY GUARD (static sites on primary zone) ***
+# FQDNs in dns_production_static_fqdns (default: apex, www, from under domain + listed extra zones) are NOT
+# validated as A → web_ip unless dns_production_static_allow_changes=true (group_vars or -e).
+# Core lab hostnames (kaiju/mail/metrics/logs/…) are always validated.
 
 - name: Validate Cloudflare DNS records
   hosts: localhost
@@ -35,6 +41,9 @@
     # Orange cloud for Traefik-facing A records (kaiju, metrics, logs, static_web_vhosts). Set cf_web_a_proxied in group_vars; false = DNS-only.
     # Use _effective name here — play var must not shadow group_vars or Ansible hits recursive template resolution.
     cf_web_a_proxied_effective: "{{ cf_web_a_proxied | default(true) | bool }}"
+
+    dns_production_static_allow_changes_effective: "{{ dns_production_static_allow_changes | default(false) | bool }}"
+    dns_production_static_fqdns_effective: "{{ dns_production_static_fqdns | default([domain, 'www.' ~ domain, 'from.' ~ domain, 'goldendawns-clan.cz', 'www.goldendawns-clan.cz']) }}"
 
     expected_mx_name: "{{ domain }}"
     expected_mx_target: "{{ expected_mail_fqdn }}"
@@ -79,18 +88,18 @@
         cf_zone_id: "{{ (cf_zone_resp.json.result | first).id }}"
       failed_when: cf_zone_resp.json.result | length != 1
 
+    - name: Filter static web FQDNs (production-static safeguard)
+      ansible.builtin.import_tasks: tasks/dns-static-web-fqdns-for-zone.yml
+
     # Avoid regex_replace + from_json (backrefs in Jinja often produce invalid JSON).
-    - name: Build static web A record expectations (FQDNs under primary domain only)
+    - name: Initialize static web A record expectations
       ansible.builtin.set_fact:
-        dns_validate_static_a_records: "{{ dns_validate_static_a_records | default([]) + [{'type': 'A', 'name': item, 'content': expected_web_ip, 'proxied': cf_web_a_proxied_effective}] }}"
-      loop: >-
-        {{
-          (static_web_vhosts | default([]))
-          | map(attribute='fqdn')
-          | select('match', '(^|\\.)' + (domain | regex_escape) + '$')
-          | list
-          | unique
-        }}
+        dns_validate_static_a_records: []
+
+    - name: Build static web A record expectations (FQDNs under primary domain, minus production-static list)
+      ansible.builtin.set_fact:
+        dns_validate_static_a_records: "{{ dns_validate_static_a_records + [{'type': 'A', 'name': item, 'content': expected_web_ip, 'proxied': cf_web_a_proxied_effective}] }}"
+      loop: "{{ dns_static_web_fqdns_for_zone }}"
       loop_control:
         label: "{{ item }}"
 

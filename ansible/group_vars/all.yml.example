@@ -69,6 +69,14 @@ cloudflare_origin_cert_enabled: false
 cf_webmail_proxied: false
 # Orange cloud for kaiju, metrics, logs, and static_web_vhosts A records. Set false if those names are DNS-only in Cloudflare.
 # cf_web_a_proxied: false
+#
+# Production static sites (same idea as validate_mail_dns): dns-cloudflare / dns-validate will not create, update,
+# or expect A records for these FQDNs unless dns_production_static_allow_changes=true.
+# Default list is apex, www, from under domain, plus goldendawns-clan.cz hostnames — override if needed:
+# dns_production_static_fqdns:
+#   - "{{ domain }}"
+#   - "www.{{ domain }}"
+# dns_production_static_allow_changes: false
 
 # --- Mailcow ---
 mailcow_install_path: /vault/mailcow

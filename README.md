@@ -20,6 +20,7 @@ Configuration, Ansible playbooks, and OS context for my Dell PowerEdge R430 serv
   - `playbooks/docker.yml` — Docker (CE when available; falls back to Debian `docker.io`), Traefik, and static nginx site.
   - `playbooks/observability.yml` — Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, and `ctop`.
   - `playbooks/mailcow.yml` — mailcow-dockerized deployment behind Traefik (with Traefik v3 + certdumper integration).
+  - `playbooks/dns-cloudflare.yml` / `playbooks/dns-validate.yml` — Cloudflare A records for core hostnames; production static sites are opt-in via `dns_production_static_allow_changes` (see `ansible/README.md`).
   - `playbooks/templates/…` — Jinja2 templates for nftables, Traefik, static web, mailcow + Traefik override.
 - `.cursor/agents/` — Cursor subagents:
   - `kaiju.md` — high-level server and service context.

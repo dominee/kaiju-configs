@@ -1,0 +1,32 @@
+---
+# Build Bearer headers for Cloudflare API v4 (DNS automation playbooks only).
+#
+# Use a scoped API Token (not the Global API Key). Set in group_vars:
+#   cloudflare_dns_api_token — recommended (Zone.DNS Edit, Zone.Zone Read on hell.sk)
+#
+# Backward compatibility: if cloudflare_dns_api_token is unset, cloudflare_api_token is used
+# (single token for both ACME and DNS during migration).
+- name: Resolve effective Cloudflare DNS API token
+  ansible.builtin.set_fact:
+    cf_dns_api_token_effective: >-
+      {{
+        (cloudflare_dns_api_token | default(cloudflare_api_token | default(''))) | string
+        | trim
+        | regex_replace('(?i)^Bearer\\s+', '')
+        | regex_replace('\\s+', '')
+        | trim
+      }}
+
+- name: Fail if Cloudflare DNS API token is empty after sanitizing
+  ansible.builtin.fail:
+    msg: >-
+      Set cloudflare_dns_api_token to a scoped Cloudflare API Token (Bearer) with at least
+      Zone.DNS Read (and Edit for dns-cloudflare / mail-dns-records), plus Zone.Zone Read.
+      During migration you may use cloudflare_api_token alone instead; do not use the Global API Key.
+  when: cf_dns_api_token_effective | default('') | length == 0
+
+- name: Build Cloudflare request headers (API Token)
+  ansible.builtin.set_fact:
+    cf_cloudflare_request_headers:
+      Authorization: "Bearer {{ cf_dns_api_token_effective }}"
+      Content-Type: application/json

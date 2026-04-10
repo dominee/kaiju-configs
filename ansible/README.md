@@ -101,9 +101,42 @@ Order: run `harden.yml` first, then `docker.yml`, then `mailcow.yml`.
 - **healthcheck-basic.yml** — basic OS and Docker health: uptime, load, disk, memory, critical systemd services, and running containers.
 - **healthcheck-full.yml** — extended healthcheck including BTRFS status, Traefik/Mailcow/observability containers, HTTP checks for key UIs, and listening mail ports.
 - **mailbox-migration-imapsync.yml** — migrate IMAP mailboxes from `abyss.hell.sk` (Dovecot) to Mailcow using `imapsync`; safe to re-run for delta sync (store passwords via ansible-vault).
-- **dns-cloudflare.yml** — create/update core A records in Cloudflare for `hell.sk` hostnames (kaiju/mail/webmail/autoconfig/autodiscover/metrics/logs + `static_web_vhosts` under `hell.sk`).
+- **dns-cloudflare.yml** — create/update **core** A records in Cloudflare for the primary zone (kaiju/mail/webmail/autoconfig/autodiscover/metrics/logs) plus **`static_web_vhosts` FQDNs under that zone that are not in the production-static list** (see below). Gated by explicit flags so a shared zone is not overwritten by accident.
 - **mail-dns-records.yml** — create/update mail DNS essentials in Cloudflare (MX/SPF/DMARC and optional DKIM TXT) for `hell.sk`.
-- **dns-validate.yml** — validate that Cloudflare DNS records match expected values (core A records + mail essentials), failing fast on drift before cutovers.
+- **dns-validate.yml** — validate Cloudflare DNS against `group_vars` for the same core A records; optional static vhosts under the zone (respecting the production-static list); mail records only if `validate_mail_dns=true`.
+
+### Cloudflare DNS automation (`dns-cloudflare.yml` / `dns-validate.yml`)
+
+**Core hostnames** (always included when the playbooks run): `kaiju`, `mail`, `autodiscover`, `autoconfig`, `webmail`, `metrics`, `logs` (FQDNs from `group_vars`, usually `*.hell.sk`). They are validated and, when you apply DNS, managed toward `web_ip` / `mail_ip`.
+
+**Production-static static sites** (default FQDNs: apex `domain`, `www.` + `domain`, `from.` + `domain`, plus `goldendawns-clan.cz` / `www.goldendawns-clan.cz` — override with `dns_production_static_fqdns`):
+
+- With **`dns_production_static_allow_changes: false`** (default): `dns-validate.yml` does **not** expect their A records to match `web_ip`; `dns-cloudflare.yml` does **not** create or update them from `static_web_vhosts`. Same idea as skipping mail DNS validation until cutover.
+- Set **`dns_production_static_allow_changes: true`** when those names should follow `web_ip` like the core web stack (e.g. after production cutover).
+
+**Apply gates (`dns-cloudflare.yml` only):**
+
+- **`dns_core_apply_ready: true`** (required) — without it the playbook exits before any Cloudflare write.
+- **`cloudflare_allow_updates: true`** — allow **PUT** when an existing record differs (IP, TTL, proxied). If false, drift **fails** the play instead of overwriting. **POST** (create missing record) is still allowed when the play runs; excluded FQDNs never reach this logic.
+
+**Proxy / lab DNS-only:**
+
+- **`cf_web_a_proxied`** — expected Cloudflare proxy for kaiju, metrics, logs, and non–production-static static A records (`true` = orange cloud, `false` = DNS-only, typical in lab).
+- **`cf_webmail_proxied`** — proxy flag for the webmail A record only.
+
+Example (lab: write core A records to Cloudflare, DNS-only, no updates to existing rows):
+
+```bash
+ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml \
+  -e dns_core_apply_ready=true
+# Add -e cloudflare_allow_updates=true when you intend to overwrite differing records.
+```
+
+Validate without touching production-static apex/www/from (default):
+
+```bash
+ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
+```
 - **preflight.yml** — validate required variables and prerequisites before deploying (scoped Cloudflare API tokens or legacy single token, IP/FQDNs, Origin cert presence when enabled, observability auth, Grafana admin password, mailcow path).
 
 ## Certificate strategy

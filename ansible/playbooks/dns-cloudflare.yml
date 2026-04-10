@@ -16,6 +16,10 @@
 # *** PRODUCTION SAFETY GUARD ***
 # This playbook can overwrite existing A records (via PUT) for names like:
 # - mail.<domain>, autodiscover.<domain>, autoconfig.<domain>, webmail.<domain>
+# - static_web_vhosts under the primary zone EXCEPT FQDNs in dns_production_static_fqdns (apex, www, from, …),
+#   unless dns_production_static_allow_changes=true. Those names are treated like production MX/SPF/DMARC: no
+#   create/update from this playbook by default. Core lab names (kaiju/mail/metrics/logs/…) are always managed.
+# FQDNs outside <domain> in static_web_vhosts are skipped here (different Cloudflare zones).
 # If those names currently point at other production hosts, running this during lab WILL cause outages.
 #
 # The flag `dns_core_apply_ready: true` MUST be explicitly set (via -e or group_vars) to allow any writes.
@@ -32,6 +36,8 @@
     # Optional: webmail is HTTP; can be proxied. Set cf_webmail_proxied in group_vars. _effective avoids recursive play-var templating.
     cf_webmail_proxied_effective: "{{ cf_webmail_proxied | default(false) | bool }}"
     cf_web_a_proxied_effective: "{{ cf_web_a_proxied | default(true) | bool }}"
+    dns_production_static_allow_changes_effective: "{{ dns_production_static_allow_changes | default(false) | bool }}"
+    dns_production_static_fqdns_effective: "{{ dns_production_static_fqdns | default([domain, 'www.' ~ domain, 'from.' ~ domain, 'goldendawns-clan.cz', 'www.goldendawns-clan.cz']) }}"
 
   tasks:
     - name: Enforce core DNS safety guard
@@ -69,23 +75,25 @@
         cf_zone_id: "{{ (cf_zone_resp.json.result | first).id }}"
       failed_when: cf_zone_resp.json.result | length != 1
 
-    # Avoid regex_replace + from_json (backrefs in Jinja often produce invalid JSON).
-    - name: Build static web A records for Cloudflare (FQDNs under primary domain only)
-      ansible.builtin.set_fact:
-        cf_static_web_a_records: "{{ cf_static_web_a_records | default([]) + [{'type': 'A', 'name': item, 'content': web_ip, 'ttl': 1, 'proxied': cf_web_a_proxied_effective}] }}"
-      loop: >-
-        {{
-          (static_web_vhosts | default([]))
-          | map(attribute='fqdn')
-          | select('match', '(^|\\.)' + (domain | regex_escape) + '$')
-          | list
-          | unique
-        }}
-      loop_control:
-        label: "{{ item }}"
+    - name: Static web A records for Cloudflare (primary zone, production-static safeguard)
       when:
         - web_ip is defined
         - mail_ip is defined
+      block:
+        - name: Filter static web FQDNs (production-static safeguard)
+          ansible.builtin.import_tasks: tasks/dns-static-web-fqdns-for-zone.yml
+
+        # Avoid regex_replace + from_json (backrefs in Jinja often produce invalid JSON).
+        - name: Initialize static web A records list for Cloudflare
+          ansible.builtin.set_fact:
+            cf_static_web_a_records: []
+
+        - name: Build static web A records for Cloudflare (FQDNs under primary domain, minus production-static list)
+          ansible.builtin.set_fact:
+            cf_static_web_a_records: "{{ cf_static_web_a_records + [{'type': 'A', 'name': item, 'content': web_ip, 'ttl': 1, 'proxied': cf_web_a_proxied_effective}] }}"
+          loop: "{{ dns_static_web_fqdns_for_zone }}"
+          loop_control:
+            label: "{{ item }}"
 
     - name: Build desired core A records (hell.sk only)
       ansible.builtin.set_fact:

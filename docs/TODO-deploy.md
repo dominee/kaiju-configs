@@ -322,6 +322,32 @@ While **MX / SPF / DMARC** in DNS still point at **production**, the lab host is
 
 **Defer until after mail DNS cutover (Phase 3):** external send/receive, SPF/DMARC alignment with kaiju, mxtoolbox DMARC checks, and client autodiscover against public DNS — see **§3.4** (post-cutover validation).
 
+### 2.5.1 Test TLS setup (lab)
+
+- [ ] Run the external TLS certificate verification playbook from the controller:
+  ```bash
+  ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml
+  ```
+  Default mode (`tls_verify_mode=lab`) connects directly to **`web_ip`** and **`mail_ip`** without relying on DNS.
+  Chain verification is **skipped by default** (Cloudflare Origin / Mailcow snake-oil are not in the OS trust store).
+  The playbook probes:
+  - HTTPS (443): all web vhosts (`kaiju.hell.sk`, `hell.sk`, `www.hell.sk`, `from.hell.sk`, `goldendawns-clan.cz`, `www.goldendawns-clan.cz`), observability UIs (`metrics.hell.sk`, `logs.hell.sk`), and mail UIs (`mail.hell.sk`, `webmail.hell.sk`)
+  - SMTPS (465), SMTP-STARTTLS (587), IMAPS (993): `mail.hell.sk`
+
+  Output per endpoint: **subject CN**, **issuer**, **not-before**, **not-after**, **days to expiry**, **OK / WARN / FAIL**.
+
+- [ ] To enforce strict chain validation (e.g. after Let's Encrypt is live on `mail_ip`):
+  ```bash
+  ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml \
+    -e tls_verify_skip_chain=false
+  ```
+
+- [ ] To probe a pre-cutover production IP before DNS is moved:
+  ```bash
+  ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml \
+    -e tls_verify_web_ip=<PROD_WEB_IP> -e tls_verify_mail_ip=<PROD_MAIL_IP>
+  ```
+
 ### 2.6 Mailbox pre-migration (lab — first sync from abyss)
 - [ ] Ensure abyss.hell.sk is reachable on IMAPS/993
 - [ ] Configure imapsync credentials in `group_vars/all.yml` (ansible-vault)
@@ -401,6 +427,13 @@ While **MX / SPF / DMARC** in DNS still point at **production**, the lab host is
   - `https://goldendawns-clan.cz`, `https://www.goldendawns-clan.cz`
 - [ ] Confirm mail UI: `https://mail.hell.sk`, `https://webmail.hell.sk`
 - [ ] Confirm observability UIs: `https://metrics.hell.sk`, `https://logs.hell.sk`
+- [ ] Verify TLS certificates against public DNS with strict chain validation:
+  ```bash
+  ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml \
+    -e tls_verify_mode=production
+  ```
+  All HTTPS, SMTPS, and IMAPS endpoints should show **OK** with publicly trusted certificates.
+  Web vhosts proxied through Cloudflare will present a Cloudflare-issued cert; mail services (DNS-only) will show the Let's Encrypt cert issued by Traefik / Mailcow ACME.
 - [ ] Run full healthcheck:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-full.yml \
@@ -543,6 +576,8 @@ ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-basic.yml
 ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-full.yml
 ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
 # mail DNS validation is skipped by default; add -e validate_mail_dns=true post-cutover
+ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml                        # TLS certs on web_ip+mail_ip (lab, skip chain verify)
+# ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml -e tls_verify_skip_chain=false  # strict after LE live
 # ansible-playbook -i inventory/hosts.yml playbooks/mail-flow-lab.yml   # SMTP+IMAP on mail_ip (see group_vars)
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml -e imapsync_dry_run=true
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml
@@ -552,6 +587,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/ip-migration.yml -e prod_web_i
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml   # final pre-cutover delta
 ansible-playbook -i inventory/hosts.yml playbooks/dns-cloudflare.yml -e dns_core_apply_ready=true -e cloudflare_allow_updates=true   # prod IPs; enable production-static static sites in group_vars first
 ansible-playbook -i inventory/hosts.yml playbooks/dns-validate.yml
+ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml -e tls_verify_mode=production  # TLS certs via public DNS, strict chain verify
 ansible-playbook -i inventory/hosts.yml playbooks/healthcheck-full.yml -e healthcheck_validate_certs=true ...
 ansible-playbook -i inventory/hosts.yml playbooks/mailbox-migration-imapsync.yml   # post-cutover delta
 ansible-playbook -i inventory/hosts.yml playbooks/ip-migration.yml ... -t remove_lab_ips

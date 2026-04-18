@@ -1,0 +1,181 @@
+---
+# External TLS certificate verification from the controller.
+# Probes every publicly exposed HTTPS, SMTPS (465), SMTP-STARTTLS (587), and IMAPS (993)
+# endpoint directly from the controller — no SSH to kaiju required.
+# Displays: subject CN, issuer, not-before, not-after, days to expiry.
+#
+# Run from ansible/:
+#
+#   Lab (default) — connect to web_ip / mail_ip, bypass DNS, skip chain verify:
+#     ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml
+#
+#   Lab — strict chain verify (e.g. after Let's Encrypt is live):
+#     ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml \
+#       -e tls_verify_skip_chain=false
+#
+#   Production — connect via public DNS, verify cert chain:
+#     ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml \
+#       -e tls_verify_mode=production
+#
+#   Probe a specific IP that is not yet the live web_ip / mail_ip:
+#     ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml \
+#       -e tls_verify_web_ip=1.2.3.4 -e tls_verify_mail_ip=1.2.3.5
+
+- name: TLS certificate verification (external probe from controller)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  vars:
+    # Mode: lab        = connect to web_ip / mail_ip, skip chain verify by default
+    #       production = connect via DNS name, verify cert chain
+    tls_verify_mode: "lab"
+
+    # Override connect IPs regardless of mode (e.g. to test pre-cutover production IPs):
+    # tls_verify_web_ip: "1.2.3.4"
+    # tls_verify_mail_ip: "1.2.3.5"
+
+    # Force strict chain verification even in lab mode (set to false to force-skip in production):
+    # tls_verify_skip_chain: false
+
+    _web_ch: "{{ tls_verify_web_ip | default(web_ip if tls_verify_mode == 'lab' else '') }}"
+    _mail_ch: "{{ tls_verify_mail_ip | default(mail_ip if tls_verify_mode == 'lab' else '') }}"
+    _skip: "{{ (tls_verify_skip_chain | default(tls_verify_mode == 'lab')) | bool }}"
+
+    # HTTPS: web vhosts served via Traefik on web_ip
+    tls_verify_web_https_fqdns:
+      - "{{ kaiju_fqdn }}"
+      - "{{ domain }}"
+      - "www.{{ domain }}"
+      - "from.{{ domain }}"
+      - "goldendawns-clan.cz"
+      - "www.goldendawns-clan.cz"
+      - "{{ grafana_fqdn | default('metrics.' + domain) }}"
+      - "{{ dozzle_fqdn | default('logs.' + domain) }}"
+
+    # HTTPS: mail-related vhosts served via Mailcow / Traefik on mail_ip
+    tls_verify_mail_https_fqdns:
+      - "{{ mailcow_fqdn }}"
+      - "{{ mailcow_webmail_fqdn | default('webmail.' + domain) }}"
+
+    # Mail protocol endpoints (all on mailcow_fqdn / mail_ip)
+    tls_verify_mail_protocols:
+      - { protocol: smtps,          port: 465, label_suffix: "SMTPS"         }
+      - { protocol: smtp_starttls,  port: 587, label_suffix: "SMTP-STARTTLS" }
+      - { protocol: imaps,          port: 993, label_suffix: "IMAPS"         }
+
+    _manifest_path: "/tmp/tls_verify_manifest.json"
+    _script_path: "/tmp/tls_verify.py"
+
+  tasks:
+    - name: Require web_ip, mail_ip, domain
+      ansible.builtin.assert:
+        that:
+          - web_ip is defined and web_ip | length > 0
+          - mail_ip is defined and mail_ip | length > 0
+          - domain is defined and domain | length > 0
+          - kaiju_fqdn is defined
+          - mailcow_fqdn is defined
+        fail_msg: >-
+          web_ip, mail_ip, domain, kaiju_fqdn, and mailcow_fqdn must be set in group_vars/all.yml.
+
+    - name: Show probe mode
+      ansible.builtin.debug:
+        msg: >-
+          Mode: {{ tls_verify_mode }} |
+          web connect: {{ _web_ch if _web_ch else 'DNS' }} |
+          mail connect: {{ _mail_ch if _mail_ch else 'DNS' }} |
+          skip chain verify: {{ _skip }}
+
+    # --- Build target manifest ------------------------------------------------
+
+    - name: Init target list
+      ansible.builtin.set_fact:
+        _tls_targets: []
+
+    - name: Add web HTTPS targets
+      ansible.builtin.set_fact:
+        _tls_targets: >-
+          {{ _tls_targets + [{
+            'label': fqdn ~ ' HTTPS',
+            'sni': fqdn,
+            'connect_host': _web_ch if _web_ch else fqdn,
+            'port': 443,
+            'protocol': 'https',
+            'skip_verify': _skip | bool
+          }] }}
+      loop: "{{ tls_verify_web_https_fqdns }}"
+      loop_control:
+        loop_var: fqdn
+
+    - name: Add mail HTTPS targets
+      ansible.builtin.set_fact:
+        _tls_targets: >-
+          {{ _tls_targets + [{
+            'label': fqdn ~ ' HTTPS',
+            'sni': fqdn,
+            'connect_host': _mail_ch if _mail_ch else fqdn,
+            'port': 443,
+            'protocol': 'https',
+            'skip_verify': _skip | bool
+          }] }}
+      loop: "{{ tls_verify_mail_https_fqdns }}"
+      loop_control:
+        loop_var: fqdn
+
+    - name: Add mail protocol targets (SMTPS / SMTP-STARTTLS / IMAPS)
+      ansible.builtin.set_fact:
+        _tls_targets: >-
+          {{ _tls_targets + [{
+            'label': mailcow_fqdn ~ ' ' ~ proto.label_suffix,
+            'sni': mailcow_fqdn,
+            'connect_host': _mail_ch if _mail_ch else mailcow_fqdn,
+            'port': proto.port,
+            'protocol': proto.protocol,
+            'skip_verify': _skip | bool
+          }] }}
+      loop: "{{ tls_verify_mail_protocols }}"
+      loop_control:
+        loop_var: proto
+
+    # --- Run probe ------------------------------------------------------------
+
+    - name: Write manifest JSON to controller temp path
+      ansible.builtin.copy:
+        content: "{{ _tls_targets | to_nice_json }}"
+        dest: "{{ _manifest_path }}"
+        mode: "0600"
+
+    - name: Install TLS verify script on controller
+      ansible.builtin.copy:
+        src: files/tls_verify.py
+        dest: "{{ _script_path }}"
+        mode: "0755"
+
+    - name: Run TLS certificate probe
+      ansible.builtin.command: "python3 {{ _script_path }} {{ _manifest_path }}"
+      register: tls_result
+      changed_when: false
+      failed_when: false
+
+    - name: Remove temp files from controller
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ _manifest_path }}"
+        - "{{ _script_path }}"
+
+    - name: TLS certificate summary
+      ansible.builtin.debug:
+        msg: "{{ tls_result.stdout }}"
+
+    - name: Fail if any certificate probe failed
+      ansible.builtin.fail:
+        msg: >-
+          One or more TLS probes failed. See summary above.
+          Lab mode: FAIL usually means the service is not reachable on the connect IP ({{ _mail_ch or _web_ch or 'DNS' }}).
+          Production mode: FAIL may also mean cert chain validation failed (expired, wrong CA, SNI mismatch).
+          Run with -vvv to see openssl stderr for each probe.
+      when: tls_result.rc != 0

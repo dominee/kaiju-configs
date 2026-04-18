@@ -1,0 +1,6 @@
+# Managed by Ansible (observability.yml). Caps persisted and runtime journal size.
+# See journald.conf(5). Full journald.conf may exist; this drop-in overrides.
+[Journal]
+SystemMaxUse={{ journald_system_max_use | default('500M') }}
+RuntimeMaxUse={{ journald_runtime_max_use | default('200M') }}
+MaxRetentionSec={{ journald_max_retention_sec | default('2week') }}

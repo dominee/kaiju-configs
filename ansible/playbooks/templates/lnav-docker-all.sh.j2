@@ -1,0 +1,13 @@
+{% raw %}
+#!/bin/sh
+# Open all Docker json-file container logs in lnav (host tool; not inside containers).
+# Requires read access to /var/lib/docker/containers (typically root or docker group).
+# POSIX sh only: dash-compatible (no bash mapfile / process substitution).
+set -eu
+set -- $(find /var/lib/docker/containers -name '*-json.log' -type f 2>/dev/null | sort)
+if [ "$#" -eq 0 ]; then
+  echo "lnav-docker-all: no *-json.log under /var/lib/docker/containers" >&2
+  exit 1
+fi
+exec /usr/bin/lnav "$@"
+{% endraw %}

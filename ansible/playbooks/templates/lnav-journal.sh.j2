@@ -1,0 +1,4 @@
+#!/bin/bash
+# Pipe journalctl into lnav. Usage: lnav-journal [journalctl args], e.g. lnav-journal --since today
+set -euo pipefail
+exec journalctl -o short-iso "$@" | /usr/bin/lnav

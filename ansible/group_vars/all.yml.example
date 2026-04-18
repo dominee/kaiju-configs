@@ -151,6 +151,16 @@ grafana_admin_user: "dominee"
 prometheus_retention_time: "15d"
 prometheus_scrape_interval: "15s"
 
+# lnav + log retention (observability.yml): host TUI reads all Docker *-json.log files; not inside containers.
+# journald_caps_enabled: true
+# journald_system_max_use: "500M"
+# journald_runtime_max_use: "200M"
+# journald_max_retention_sec: "2week"
+# docker_log_rotate_enabled: true
+# docker_log_max_size: "50m"
+# docker_log_max_file: "5"
+# Optional merge into /etc/docker/daemon.json (e.g. registry-mirrors): docker_daemon_extra: {}
+
 # Optional: Mailcow Prometheus exporter.
 # If you deploy a mailcow exporter container, set:
 # mailcow_exporter_enabled: true

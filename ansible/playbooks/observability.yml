@@ -1,7 +1,12 @@
 ---
-# Observability stack: Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, ctop.
+# Observability stack: Prometheus, Grafana, node_exporter, cAdvisor, Dozzle, ctop, lnav.
 # Run: ansible-playbook -i ../inventory/hosts.yml observability.yml
 # Requires: group_vars/all.yml with dozzle_fqdn, grafana_fqdn, prometheus_* vars.
+#
+# Log review: lnav is installed on the *host* (not inside containers). It can open all Docker
+# json-file logs via `lnav-docker-all` and pipe journalctl via `lnav-journal`.
+# Rotation: journald caps in journald.conf.d; Docker json-file rotation via /etc/docker/daemon.json
+# (max-size / max-file). Traditional syslog files under /var/log use Debian defaults unless overridden.
 
 - name: Deploy observability stack on kaiju
   hosts: kaiju
@@ -44,6 +49,59 @@
             else ansible_facts.architecture
           }}
       when: ctop_version_check.rc != 0 or (ctop_version_check.stdout | default('')) is not search('^ctop version ' ~ ctop_version ~ '$')
+
+    # --- lnav (host CLI/TUI) + log retention (journald + Docker json-file) -----------------
+
+    - name: Install lnav (log navigator — color, search, SQL filters; multi-file TUI)
+      ansible.builtin.apt:
+        name: lnav
+        state: present
+
+    - name: Deploy lnav helper scripts for Docker + journal
+      ansible.builtin.template:
+        src: "templates/{{ item.src }}"
+        dest: "/usr/local/bin/{{ item.dest }}"
+        mode: "0755"
+        owner: root
+        group: root
+      loop:
+        - { src: lnav-docker-all.sh.j2, dest: lnav-docker-all }
+        - { src: lnav-journal.sh.j2, dest: lnav-journal }
+      loop_control:
+        label: "{{ item.dest }}"
+
+    - name: Ensure systemd-journald configuration drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/journald.conf.d
+        state: directory
+        mode: "0755"
+
+    - name: Deploy journald storage caps (persisted + runtime journal)
+      ansible.builtin.template:
+        src: templates/journald-kaiju.conf.j2
+        dest: /etc/systemd/journald.conf.d/99-kaiju-observability.conf
+        mode: "0644"
+      notify: Restart systemd-journald
+      when: journald_caps_enabled | default(true) | bool
+
+    - name: Check whether Docker Engine is installed
+      ansible.builtin.stat:
+        path: /usr/bin/docker
+      register: docker_engine_bin
+
+    - name: Deploy Docker daemon.json for json-file container log rotation
+      ansible.builtin.template:
+        src: templates/docker-daemon.json.j2
+        dest: /etc/docker/daemon.json
+        mode: "0644"
+        backup: true
+      when:
+        - docker_engine_bin.stat.exists
+        - docker_log_rotate_enabled | default(true) | bool
+      notify: Restart Docker
+
+    - name: Flush journald/Docker handlers before observability compose (apply daemon.json + journal caps)
+      ansible.builtin.meta: flush_handlers
 
     - name: Create observability install directory
       ansible.builtin.file:
@@ -113,4 +171,15 @@
           containers are not on the proxy network, or traefik.enable=true label is absent.
           Routers JSON (truncated):
           {{ (traefik_routers_json.stdout | default('') )[:3000] }}
+
+  handlers:
+    - name: Restart systemd-journald
+      ansible.builtin.systemd:
+        name: systemd-journald
+        state: restarted
+
+    - name: Restart Docker
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
 

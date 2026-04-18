@@ -1,0 +1,10 @@
+{# Docker Engine: json-file log driver with size/count caps (default docker.io behavior is unbounded). #}
+{% set _daemon = {
+  'log-driver': 'json-file',
+  'log-opts': {
+    'max-size': docker_log_max_size | default('50m'),
+    'max-file': docker_log_max_file | default('5') | string
+  }
+} %}
+{% set _merged = _daemon | combine(docker_daemon_extra | default({}), recursive=True) %}
+{{ _merged | to_nice_json }}

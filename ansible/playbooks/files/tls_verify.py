@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# rev: 1 — external TLS certificate probe for all exposed services
+# rev: 2 — external TLS certificate probe for all exposed services
 """Probe TLS certificates from the controller for each configured service.
 
 Reads a JSON manifest from argv[1] and prints a formatted table showing issuer,
@@ -12,6 +12,9 @@ Target schema (list of objects):
   sni           TLS SNI / server_name presented during handshake
   protocol      https | smtps | imaps | smtp_starttls
   skip_verify   true = do not enforce cert chain validation (lab/Origin/snake-oil)
+
+Strict mode runs openssl s_client with -verify and -verify_return_error, and treats a
+non-zero Verify return code as failure (self-signed, wrong CA, etc.).
 
 Exit code: 0 if all pass (or warn-only), 1 if any fail/error.
 """
@@ -30,6 +33,8 @@ WARN_DAYS = 30
 _CN_RE = re.compile(r'(?:^|[,/])\s*CN\s*=\s*([^,\n/]+)', re.IGNORECASE)
 # Match O (organisation) value from DN.
 _O_RE = re.compile(r'(?:^|[,/])\s*O\s*=\s*([^,\n/]+)', re.IGNORECASE)
+# openssl s_client prints: "Verify return code: 0 (ok)" or "Verify return code: 18 (self signed certificate)"
+_VERIFY_RETURN_RE = re.compile(rb"Verify return code:\s*(\d+)", re.IGNORECASE)
 
 
 def _cn(dn: str) -> str:
@@ -54,6 +59,15 @@ def _parse_openssl_date(s: str) -> Optional[datetime.datetime]:
     return None
 
 
+def _verify_return_code(stderr: bytes, stdout: bytes) -> Optional[int]:
+    """Parse OpenSSL's verification result (0 = trusted chain)."""
+    for blob in (stderr, stdout):
+        m = _VERIFY_RETURN_RE.search(blob)
+        if m:
+            return int(m.group(1))
+    return None
+
+
 def _s_client(connect_host: str, port: int, sni: str, protocol: str, strict: bool) -> tuple[bytes, bytes, int]:
     cmd = [
         "openssl", "s_client",
@@ -63,7 +77,9 @@ def _s_client(connect_host: str, port: int, sni: str, protocol: str, strict: boo
     if protocol == "smtp_starttls":
         cmd += ["-starttls", "smtp"]
     if strict:
-        cmd += ["-verify_return_error"]
+        # -verify_return_error only applies when peer verification is enabled; without -verify,
+        # s_client completes the handshake with exit 0 even for self-signed / untrusted certs.
+        cmd += ["-verify", "10", "-verify_return_error"]
     try:
         r = subprocess.run(cmd, input=b"\n", capture_output=True, timeout=15)
         return r.stdout, r.stderr, r.returncode
@@ -120,18 +136,28 @@ def probe(target: dict) -> dict:
     }
 
     stdout, stderr, rc = _s_client(connect_host, port, sni, protocol, strict)
+    verify_code = _verify_return_code(stderr, stdout)
 
     if rc == -1:
         out["note"] = "timeout"
         return out
 
-    if strict and rc != 0:
-        out["note"] = "chain verify failed"
-        # Still try to parse cert details even if chain failed (informational)
+    chain_ok = True
+    if strict:
+        if verify_code is not None and verify_code != 0:
+            chain_ok = False
+            out["note"] = f"verify return code {verify_code}"
+        elif verify_code is None and rc != 0:
+            chain_ok = False
+            out["note"] = "chain verify failed"
+        elif rc != 0:
+            chain_ok = False
+            out["note"] = out["note"] or "handshake failed"
 
     cert = _parse_cert(stdout)
     if cert is None:
         out["note"] = out["note"] or "no cert / connect error"
+        out["status"] = "FAIL"
         return out
 
     out["subject_cn"] = _cn(cert["subject_dn"]) or cert["subject_dn"]
@@ -149,11 +175,11 @@ def probe(target: dict) -> dict:
         elif delta.days < WARN_DAYS:
             out["status"] = "WARN"
         else:
-            out["status"] = "OK" if not (strict and rc != 0) else "FAIL"
+            out["status"] = "OK"
     else:
-        out["status"] = "OK" if not (strict and rc != 0) else "FAIL"
+        out["status"] = "OK"
 
-    if strict and rc != 0:
+    if strict and not chain_ok:
         out["status"] = "FAIL"
 
     return out

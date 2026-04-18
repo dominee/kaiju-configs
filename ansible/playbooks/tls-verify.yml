@@ -9,9 +9,10 @@
 #   Lab (default) — connect to web_ip / mail_ip, bypass DNS, skip chain verify:
 #     ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml
 #
-#   Lab — strict chain verify (e.g. after Let's Encrypt is live):
+#   Lab — strict chain verify (e.g. after Let's Encrypt is live on mail):
 #     ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml \
 #       -e tls_verify_skip_chain=false
+#     (Uses openssl s_client -verify; HTTPS may still FAIL while web uses Cloudflare Origin at origin.)
 #
 #   Production — connect via public DNS, verify cert chain:
 #     ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml \
@@ -41,7 +42,13 @@
 
     _web_ch: "{{ tls_verify_web_ip | default(web_ip if tls_verify_mode == 'lab' else '') }}"
     _mail_ch: "{{ tls_verify_mail_ip | default(mail_ip if tls_verify_mode == 'lab' else '') }}"
-    _skip: "{{ (tls_verify_skip_chain | default(tls_verify_mode == 'lab')) | bool }}"
+    # When unset: lab skips chain verify (Origin / snake-oil); production verifies.
+    # When set: explicit true/false (avoids bool quirks on optional extra vars).
+    _skip: >-
+      {{
+        (tls_verify_skip_chain is not defined)
+        | ternary(tls_verify_mode == 'lab', tls_verify_skip_chain | bool)
+      }}
 
     # HTTPS: web vhosts served via Traefik on web_ip
     tls_verify_web_https_fqdns:

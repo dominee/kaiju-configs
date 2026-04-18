@@ -14,6 +14,10 @@ domain: hell.sk
 kaiju_fqdn: "kaiju.{{ domain }}"       # host FQDN (web services)
 acme_email: "admin@{{ domain }}"       # Let's Encrypt / ACME contact (for mail)
 mailcow_fqdn: "mail.{{ domain }}"      # mail server hostname
+# Must match mailcow.conf COMPOSE_PROJECT_NAME (traefik_certdumper --restart-containers uses these names).
+# mailcow_compose_project_name: mailcow
+# traefik-certs-dumper: single domain for flat cert.pem in data/assets/ssl (defaults to mailcow_fqdn).
+# mailcow_certdumper_domain: "mail.{{ domain }}"
 
 # --- Host IPs and hostnames (single server, bond0 with two IPs) ---
 # Web services (Traefik, static sites): kaiju.hell.sk → web_ip
@@ -34,7 +38,10 @@ mail_hostname: "mail.{{ domain }}"
 # Create tokens at: Dashboard → Manage Account → API Tokens → Create Token.
 # Use "Edit zone DNS" template or custom with minimal permissions; never commit token values.
 #
-# ACME (Traefik Let's Encrypt DNS-01): DNS Edit on each zone that needs certs (e.g. hell.sk).
+# ACME (Traefik Let's Encrypt DNS-01): Cloudflare Zone *DNS* Edit (creates _acme-challenge TXT records).
+# "Zone SSL and Certificates" is NOT a substitute — it does not grant DNS record writes for Let's Encrypt.
+# You may use the same API token value as cloudflare_dns_api_token if that token already has Zone DNS Edit.
+# If Traefik logs error 10000 / "failed to create TXT record", the token in CF_DNS_API_TOKEN lacks DNS Edit.
 cloudflare_acme_dns_token: "your-cloudflare-acme-dns-token"
 # DNS automation (dns-validate, dns-cloudflare, mail-dns-records): DNS Read+Edit + Zone Read on hell.sk.
 cloudflare_dns_api_token: "your-cloudflare-dns-api-token"
@@ -43,6 +50,10 @@ cloudflare_dns_api_token: "your-cloudflare-dns-api-token"
 # cloudflare_api_token: "your-single-cloudflare-api-token"
 # Web services behind Cloudflare shield use Cloudflare Origin Certificates.
 # Set to true after placing origin.pem and origin-key.pem in /opt/traefik/certs/
+#
+# IMPORTANT: When creating the Origin cert in Cloudflare, do NOT include *.domain or mail-related
+# hostnames (mail, webmail, autodiscover, autoconfig) if Traefik must also issue Let's Encrypt
+# for those names — Traefik OSS uses one TLS store; a matching Origin cert blocks ACME for the same SNI.
 cloudflare_origin_cert_enabled: false
 # Cloudflare Origin Cert: place cert/key pairs in /opt/traefik/certs/ before deploying.
 # Use /certs/... paths below — that is the path *inside* the Traefik container (compose bind-mount);

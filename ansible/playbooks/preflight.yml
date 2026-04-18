@@ -34,6 +34,7 @@
         that:
           - >-
             (cloudflare_acme_dns_token | default('') | trim | length > 0)
+            or (cloudflare_dns_api_token | default('') | trim | length > 0)
             or (cloudflare_api_token | default('') | trim | length > 0)
           - >-
             (cloudflare_dns_api_token | default('') | trim | length > 0)
@@ -48,10 +49,11 @@
             )
         fail_msg: >-
           Set scoped API Tokens (recommended): cloudflare_acme_dns_token for Traefik ACME DNS-01
-          (Zone.DNS Edit on zones used for certificates) and cloudflare_dns_api_token for
-          dns-validate / dns-cloudflare / mail-dns-records (Zone.DNS Read+Edit, Zone.Zone Read).
-          Until you split them, a single vaulted cloudflare_api_token may satisfy both checks.
-          Use Cloudflare API Tokens (Bearer) only; Global API Key is not supported.
+          (Cloudflare: Zone DNS Edit — TXT for _acme-challenge; NOT SSL/Certificates-only) and
+          cloudflare_dns_api_token for dns-validate / dns-cloudflare / mail-dns-records
+          (Zone DNS Edit + Zone Read on hell.sk). Traefik .env uses acme token first, then dns token,
+          then legacy cloudflare_api_token. Until you split them, a single vaulted cloudflare_api_token
+          may satisfy both checks. Use Cloudflare API Tokens (Bearer) only; Global API Key is not supported.
 
     - name: Require web_ip and mail_ip for DNS split-host setup
       ansible.builtin.assert:

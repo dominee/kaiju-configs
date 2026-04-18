@@ -8,13 +8,17 @@ services:
     container_name: traefik_certdumper
     restart: unless-stopped
     network_mode: none
-    command: --restart-containers mailcow_postfix-mailcow_1,mailcow_dovecot-mailcow_1
+    # Compose v2 + COMPOSE_PROJECT_NAME=mailcow → hyphenated names (old mailcow_*_*_1 was compose v1).
+    command: "--restart-containers {{ mailcow_compose_project_name | default('mailcow') }}-postfix-mailcow-1,{{ mailcow_compose_project_name | default('mailcow') }}-dovecot-mailcow-1"
     volumes:
       - traefik_certs:/traefik:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data/assets/ssl:/output:rw
     environment:
-      - DOMAIN={{ domain }}
+      # MUST be a single domain here: kereis/traefik-certs-dumper writes cert.pem/key.pem to /output only when
+      # DOMAIN has one entry. Multiple domains → subdirs (/output/mail.hell.sk/...) and Mailcow still reads
+      # data/assets/ssl/cert.pem (snake-oil). Use mail server hostname — that is what Postfix/Dovecot present on 465/587/993.
+      - "DOMAIN={{ mailcow_certdumper_domain | default(mailcow_fqdn) }}"
       - ACME_FILE_PATH=/traefik/acme.json
 
   nginx-mailcow:

@@ -2,6 +2,11 @@
 # Supports one cert pair per zone (e.g. hell.sk and goldendawns-clan.cz require separate certs).
 # Configure origin_cert_pairs in group_vars/all.yml; defaults to a single pair for the primary domain.
 # Place each cert/key pair in /opt/traefik/certs/ before deploying.
+#
+# Traefik OSS: all certs (Origin + ACME) share the default TLS store. If the Origin PEM includes
+# *.zone or mail/webmail/autodiscover/autoconfig hostnames, SNI for those names matches Origin first
+# and Let's Encrypt for Mailcow routers never runs — acme.json stays empty. Generate the Origin cert
+# in Cloudflare with SANs limited to web hostnames only, or disable Origin and use ACME for web.
 tls:
   certificates:
 {% for pair in origin_cert_pairs | default([

@@ -53,10 +53,10 @@ Use **API Tokens** (Bearer), not the Global API Key. Create two minimal tokens i
 
 | Variable | Used by | Suggested permissions |
 |----------|---------|------------------------|
-| `cloudflare_acme_dns_token` | Traefik **only if** `cloudflare_origin_cert_enabled: false` — Let's Encrypt DNS-01 (`docker.yml` → `CF_DNS_API_TOKEN`) | **Zone → DNS → Edit** on each zone that needs public certs. Not required when using **Cloudflare Origin Certificates** only. |
+| `cloudflare_acme_dns_token` | Traefik Let’s Encrypt DNS-01 (`docker.yml` → `CF_DNS_API_TOKEN`) for any `certresolver=cloudflare` router (e.g. **Mailcow**, Grafana/Dozzle/static web when Origin is off) | **Zone → DNS → Edit** on **each zone** where Traefik must issue certs (e.g. `hell.sk`). **Not** “Zone SSL and Certificates” — that permission does **not** create the **`_acme-challenge` TXT** records DNS-01 needs. **Still required** when **`cloudflare_origin_cert_enabled: true`** for web Origin — mail uses ACME separately. **Not** needed only if **nothing** uses ACME (rare: full Origin for every hostname and no certresolver). |
 | `cloudflare_dns_api_token` | `dns-validate.yml`, `dns-cloudflare.yml`, `mail-dns-records.yml` | **Zone → DNS → Edit**, **Zone → Zone → Read** on `hell.sk` (Edit covers read for API purposes). |
 
-- [x] Create token **A** (ACME): vault as `cloudflare_acme_dns_token` — **skip if** you use Origin Certificates only (`cloudflare_origin_cert_enabled: true`).
+- [x] Create token **A** (ACME): vault as `cloudflare_acme_dns_token` — required whenever Traefik must complete DNS-01 (at minimum for **mail** if Mailcow sits behind Traefik). **You do not need a third Cloudflare token** if **`cloudflare_dns_api_token` already has Zone DNS Edit:** either (1) **add Zone DNS Edit** to the Cloudflare token currently stored as `cloudflare_acme_dns_token`, or (2) **set `cloudflare_acme_dns_token` in vault to the same secret string** as `cloudflare_dns_api_token` (two Ansible keys, one API token — Traefik’s `.env` uses `cloudflare_acme_dns_token` first, then `cloudflare_dns_api_token`, then legacy `cloudflare_api_token`; **blank** `cloudflare_acme_dns_token` falls through to the DNS token). If **`cloudflare_acme_dns_token` is non-empty** but only has **SSL/Certificates** scope in Cloudflare, Traefik still uses it and DNS-01 fails — replace that value or fix the token’s permissions. Traefik logs **`Authentication error (10000)`** / **`failed to create TXT record`** mean the resolved token cannot **write DNS** for the zone.
 - [x] Create token **B** (DNS automation): vault as `cloudflare_dns_api_token`.
 
 #### DNS playbooks — safeguards (`group_vars/all.yml`)
@@ -307,6 +307,34 @@ These playbooks target a **shared Cloudflare zone** (production still serves `he
     ```bash
     docker logs traefik 2>&1 | grep -i 'error\|acme\|certif'
     ```
+  - **Troubleshooting — `acme.json` is 0 bytes, or `traefik_certdumper` logs `EOF` / `Certificates for domain ... don't exist`:**  
+    **certdumper only reads certs Traefik has already stored** — fix Traefik ACME first; dumper messages are a consequence of an empty or unreadable `acme.json`.
+    - [x] Token is **inside** the Traefik container (`.env` on disk is not enough if empty/wrong):  
+      `docker exec traefik sh -c 'test -n "$CF_DNS_API_TOKEN" && echo CF_DNS_API_TOKEN=set || echo CF_DNS_API_TOKEN=missing'`
+    - [x] **Cloudflare Origin cert must not cover mail ACME names** (most common cause of **0-byte `acme.json` + no ACME lines in logs): Traefik OSS keeps **one** default TLS store. If **`cloudflare_origin_cert_enabled: true`** and the Origin PEM includes **`*.hell.sk`** or **`mail.hell.sk`** / **`webmail.*`** / **`autodiscover.*`** / **`autoconfig.*`**, the TLS handshake for those SNIs succeeds with Origin and Traefik **never runs** Let’s Encrypt — so **`acme.json` stays empty** and `grep acme` on logs prints **nothing**. Inspect SANs:  
+      `openssl x509 -in /opt/traefik/certs/origin.pem -noout -text | grep -A1 'Subject Alternative Name'`  
+      **Fix:** In Cloudflare **SSL/TLS → Origin Server**, create a **new** Origin cert listing **only** web hostnames (e.g. apex, `www`, `kaiju`, `metrics`, `logs`, static sites — **not** `*` / **not** mail-related names), replace PEMs on kaiju, `docker compose -f /opt/traefik/docker-compose.yml up -d --force-recreate traefik`, then re-test mail HTTPS and `acme.json`.
+    - [x] Re-render and redeploy if needed: `ansible-playbook ... playbooks/docker.yml` (template `ansible/playbooks/templates/traefik.env.j2` must resolve `cloudflare_acme_dns_token` or legacy `cloudflare_api_token` to a non-empty value).
+    - [ ] Read Traefik logs **without** filtering first (startup + INFO lines appear; ACME only after a real issuance attempt):  
+      `docker logs traefik 2>&1 | tail -80`  
+      Then filter: `docker logs traefik 2>&1 | grep -iE 'acme|lego|cloudflare|certificate|error'` — if still empty after fixing Origin SANs and triggering HTTPS, check token scope (**Zone → DNS → Edit** on `hell.sk`) and DNS for ACME.
+    - [ ] **Trigger issuance** (Traefik requests certs when a `certresolver=cloudflare` router is used and no static cert matches SNI): e.g.  
+      `curl -vkI --resolve mail.hell.sk:443:<mail_ip> https://mail.hell.sk/` (and similarly for `webmail` / `autodiscover` / `autoconfig` if needed). Wait until `docker exec traefik wc -c /letsencrypt/acme.json` is **non-zero** and JSON parses.
+    - [ ] Confirm Traefik sees Mailcow routers (same Docker `proxy` network): e.g. `docker exec traefik wget -qO- http://127.0.0.1:8080/api/http/routers` — look for `mailcow` routers.
+    - [ ] **SMTPS / IMAPS still self-signed while HTTPS is Let’s Encrypt:** `traefik-certs-dumper` must write **`cert.pem` / `key.pem` at the root of** `data/assets/ssl/`. With **multiple** `DOMAIN` values it writes under **`data/assets/ssl/<hostname>/`** instead, so Postfix/Dovecot keep the bootstrap cert. The override uses **one** domain (default **`mailcow_fqdn`**) for a flat dump. Also ensure **`--restart-containers`** matches **`docker ps`** names (e.g. `mailcow-postfix-mailcow-1`, `mailcow-dovecot-mailcow-1` when `COMPOSE_PROJECT_NAME=mailcow`). After fixing, `docker compose ... up -d` in the mailcow dir (or `docker restart traefik_certdumper`), then verify `openssl x509 -in .../data/assets/ssl/cert.pem -noout -issuer`.
+    - [ ] **Cloudflare `Authentication error (10000)`** / `failed to create TXT record` in Traefik logs: the token Traefik sends as **`CF_DNS_API_TOKEN`** cannot create **`_acme-challenge` TXT** records (wrong secret, expired token, or **missing Zone DNS Edit** — **Zone SSL and Certificates** is not enough). **`acme.json`** can show an **`Account`** but **`Certificates: null`** until this succeeds. **Fix (no new Cloudflare token required if `cloudflare_dns_api_token` already has DNS Edit):** vault the **same** token string as **`cloudflare_acme_dns_token`**, or **clear** `cloudflare_acme_dns_token` so Traefik falls back to **`cloudflare_dns_api_token`** (see `ansible/playbooks/templates/traefik.env.j2`), or **add Zone DNS Edit** to the Cloudflare token currently stored under `cloudflare_acme_dns_token`. Then **`docker.yml`**, recreate Traefik, trigger HTTPS to `mail.hell.sk`; confirm **`Certificates`** in `acme.json` is non-null.
+
+#### 2.4.1 Mail TLS — Let’s Encrypt on SMTP/IMAPS (lab)
+
+**Prerequisites:** §0.3 (`cloudflare_acme_dns_token`, `acme_email`), §1.5–1.6 (`docker.yml`, `mailcow.yml`), §2.4 ACME (`acme.json` + Traefik logs). Use this subsection when Traefik already has LE for mail HTTPS but **465 / 587 / 993** still show bootstrap/self-signed until certdumper has pushed PEMs into Mailcow (`ansible/playbooks/templates/mailcow-traefik-override.yml.j2`).
+
+- [x] `ansible-playbook -i inventory/hosts.yml playbooks/preflight.yml` — passes (re-run after changing ACME-related `group_vars`).
+- [x] `ansible-playbook -i inventory/hosts.yml playbooks/docker.yml` — run **only if** Traefik env/compose or Origin cert layout changed since last apply.
+- [x] `ansible-playbook -i inventory/hosts.yml playbooks/mailcow.yml` — run **only if** Mailcow Traefik override / certdumper wiring changed.
+- [x] `acme.json` lists mail-related hostnames — same `docker exec traefik ...` check as §2.4 ACME.
+- [ ] `docker logs traefik_certdumper` (on kaiju) — no errors; if IMAPS/SMTPS still untrusted, restart mail containers once (per Mailcow) after a successful dump.
+- [ ] `openssl s_client -servername mail.hell.sk -connect <mail_ip>:993 </dev/null` — **`Verify return code: 0 (ok)`**.
+- [ ] `ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml -e tls_verify_skip_chain=false` — mail **SMTPS / SMTP-STARTTLS / IMAPS** rows **OK** (HTTPS rows may **FAIL** while web still uses Cloudflare Origin at the origin — expected; optional: `mail-flow-lab.yml` with `mail_flow_lab_tls_insecure: false` — §2.5).
 
 ### 2.5 Mail validation (lab — no public MX on kaiju yet)
 
@@ -324,23 +352,24 @@ While **MX / SPF / DMARC** in DNS still point at **production**, the lab host is
 
 ### 2.5.1 Test TLS setup (lab)
 
-- [ ] Run the external TLS certificate verification playbook from the controller:
+- [x] Run the external TLS certificate verification playbook from the controller:
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml
   ```
   Default mode (`tls_verify_mode=lab`) connects directly to **`web_ip`** and **`mail_ip`** without relying on DNS.
-  Chain verification is **skipped by default** (Cloudflare Origin / Mailcow snake-oil are not in the OS trust store).
+  Chain verification is **skipped by default** (Cloudflare Origin / Mailcow bootstrap certs are not in the OS trust store). With **`-e tls_verify_skip_chain=false`**, the probe uses **`openssl s_client -verify`** and fails targets whose chain is not trusted by the controller (e.g. self-signed mail, or Origin-only HTTPS at the origin).
   The playbook probes:
   - HTTPS (443): all web vhosts (`kaiju.hell.sk`, `hell.sk`, `www.hell.sk`, `from.hell.sk`, `goldendawns-clan.cz`, `www.goldendawns-clan.cz`), observability UIs (`metrics.hell.sk`, `logs.hell.sk`), and mail UIs (`mail.hell.sk`, `webmail.hell.sk`)
   - SMTPS (465), SMTP-STARTTLS (587), IMAPS (993): `mail.hell.sk`
 
   Output per endpoint: **subject CN**, **issuer**, **not-before**, **not-after**, **days to expiry**, **OK / WARN / FAIL**.
 
-- [ ] To enforce strict chain validation (e.g. after Let's Encrypt is live on `mail_ip`):
+- [x] To enforce strict chain validation (e.g. after Let's Encrypt is live on `mail_ip` — see **§2.4.1**):
   ```bash
   ansible-playbook -i inventory/hosts.yml playbooks/tls-verify.yml \
     -e tls_verify_skip_chain=false
   ```
+  Expect **FAIL** on any endpoint still using a non–publicly-trusted certificate (common for HTTPS at the origin while using Cloudflare Origin certs).
 
 - [ ] To probe a pre-cutover production IP before DNS is moved:
   ```bash

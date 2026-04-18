@@ -5,6 +5,7 @@ services:
     container_name: traefik
     restart: unless-stopped
     command:
+      - "--log.level=INFO"
       - "--api.dashboard=true"
       - "--api.insecure=true"
       - "--metrics.prometheus=true"
